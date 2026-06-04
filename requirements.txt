@@ -1,0 +1,25 @@
+# --- GUI / десктоп-оболочка ---
+pywebview>=5.0          # нативное окно с HTML/JS UI (WebView2 на Windows)
+
+# --- генерация субтитров (ASR) ---
+faster-whisper>=1.0.0   # быстрый Whisper на CTranslate2, word-level таймкоды
+
+# --- LLM: общение с Ollama/Qwen по HTTP ---
+requests>=2.31
+
+# --- распознавание / идентификация лиц ---
+insightface>=0.7.3      # ArcFace-эмбеддинги (стабильная идентичность спикеров)
+onnxruntime>=1.17       # рантайм для insightface (CPU). GPU: onnxruntime-gpu
+mediapipe>=0.10         # FaceMesh на 468 точек (мимика, ракурс)
+opencv-python>=4.9      # работа с кадрами
+
+# --- математика / кластеризация лиц и спикеров ---
+numpy>=1.24
+scikit-learn>=1.3       # агломеративная кластеризация эмбеддингов
+
+# --- сборка ---
+pyinstaller>=6.3        # сборка .exe (нужно только для build)
+
+# --- определение устройства (опционально, для CUDA-детекта) ---
+# torch>=2.0           # раскомментируйте для точного определения видеокарты/VRAM
+# onnxruntime-gpu      # вместо onnxruntime — ускорение лиц на видеокарте
