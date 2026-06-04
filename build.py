@@ -23,6 +23,13 @@ import sys
 import time
 from pathlib import Path
 
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 ROOT = Path(__file__).resolve().parent
 APP_NAME = "Submind"
 ENTRY = ROOT / "app" / "main.py"
@@ -129,6 +136,11 @@ def _check_ollama():
 #  build
 # --------------------------------------------------------------------------- #
 def _clean_build_artifacts():
+    if os.name == "nt":
+        subprocess.run(
+            ["taskkill", "/F", "/IM", f"{APP_NAME}.exe", "/T"],
+            capture_output=True, text=True,
+        )
     targets = [ROOT / "build", ROOT / "dist", BUILD_META_DIR]
     targets += list(ROOT.glob("*.spec"))
     for p in targets:

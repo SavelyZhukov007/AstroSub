@@ -1,12 +1,12 @@
 # -*- mode: python ; coding: utf-8 -*-
-from PyInstaller.utils.hooks import collect_data_files
 from PyInstaller.utils.hooks import collect_all
 
-datas = [('C:\\Project\\SubMind\\web', 'web')]
+datas = [('C:\\Project\\SubMind\\web', 'web'), ('C:\\Project\\SubMind\\.build-meta\\build-info.json', '.')]
 binaries = []
-hiddenimports = ['faster_whisper', 'ctranslate2', 'onnxruntime', 'cv2', 'numpy', 'sklearn', 'insightface', 'mediapipe', 'torch']
-datas += collect_data_files('faster_whisper')
+hiddenimports = ['pip._internal.cli.main']
 tmp_ret = collect_all('webview')
+datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
+tmp_ret = collect_all('pip')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 
 
@@ -19,7 +19,7 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=['faster_whisper', 'ctranslate2', 'onnxruntime', 'cv2', 'numpy', 'sklearn', 'insightface', 'mediapipe', 'torch'],
     noarchive=False,
     optimize=0,
 )

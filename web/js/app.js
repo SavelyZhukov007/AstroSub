@@ -267,7 +267,11 @@ function bindBus() {
 
   on("summary:start", () => { status("Qwen строит конспект..."); $("#summaryOut").innerHTML = `<span class="spinner"></span>`; state.summaryBuf = ""; });
   on("summary:token", (d) => { state.summaryBuf += d.token; $("#summaryOut").innerHTML = renderMarkdown(state.summaryBuf); });
-  on("summary:done", (d) => { if (d && d.summary) $("#summaryOut").innerHTML = renderMarkdown(d.summary); status("Конспект готов"); });
+  on("summary:done", (d) => {
+    if (d && d.summary) $("#summaryOut").innerHTML = renderMarkdown(d.summary);
+    else if (!state.summaryBuf) $("#summaryOut").innerHTML = `<p class="muted">Ollama не запущен.</p>`;
+    status("Конспект готов");
+  });
 
   on("glossary:start", () => { $("#glossaryOut").innerHTML = `<span class="spinner"></span>`; });
   on("glossary:done", (d) => { renderGlossary(d.glossary); });
@@ -299,7 +303,7 @@ function bindBus() {
   on("faceid:analysis_start", () => { state.fidAnalysisBuf = ""; $("#fidAnalysis") && ($("#fidAnalysis").innerHTML = `<span class="spinner"></span>`); });
   on("faceid:analysis_token", (d) => { state.fidAnalysisBuf += d.token; const el = $("#fidAnalysis"); if (el) el.innerHTML = renderMarkdown(state.fidAnalysisBuf); });
   on("faceid:analysis_done", () => status("Разбор готов"));
-  on("faceid:analysis_error", (d) => { const el = $("#fidAnalysis"); if (el) el.innerHTML = `<p class="muted">${d.message}.</p>`; });
+  on("faceid:analysis_error", (d) => { const el = $("#fidAnalysis"); if (el) el.innerHTML = `<p class="muted">${d.message}.</p>`; status(d.message); });
 
   // модели / установка
   on("pull:start", () => { $("#pullProgress").classList.remove("hidden"); $("#pullStatus").textContent = "Загрузка…"; });

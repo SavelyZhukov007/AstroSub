@@ -35,6 +35,8 @@ python build.py build             # собрать standalone .exe (dist/Submind
 ```
 
 `python build.py install --yes --gpu` дополнительно поставит onnxruntime-gpu.
+`python build.py build` перед сборкой автоматически очищает старые `build/`, `dist/`,
+`Submind.spec`, `.build-meta/` и `__pycache__`, затем создаёт новый build-id.
 
 ## Структура
 
@@ -61,6 +63,9 @@ web/                интерфейс (HTML/CSS/JS, SVG-иконки)
 - При первом распознавании faster-whisper один раз скачивает выбранную модель.
 - InsightFace при первом запуске скачивает пакет моделей buffalo_l.
 - Конспекты и «Подробнее» требуют запущенного Ollama; без него субтитры всё равно работают.
+- Собранный `.exe` стартует чистым: тяжёлые ML-пакеты ставятся мастером первого запуска в
+  `%APPDATA%\Submind\packages`. Если найдена NVIDIA/CUDA-видеокарта, мастер предложит
+  CUDA-пакеты и после установки пересканирует устройство.
 
 ---
 
