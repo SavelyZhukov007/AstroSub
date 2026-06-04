@@ -8,15 +8,18 @@ if __package__ in (None, ""):
     from app import config
     config.bootstrap_runtime_packages()
     from app.api import Api
+    from app.core.single_instance import ensure_single_instance
 else:
     from . import config
     config.bootstrap_runtime_packages()
     from .api import Api
+    from .core.single_instance import ensure_single_instance
 
 import webview
 
 
 def main():
+    guard = ensure_single_instance("Submind")
     api = Api()
     # поднимаем локальный сервер: статика UI + медиа по http (безопасный контекст
     # для камеры/микрофона и корректное проигрывание видео)
@@ -36,7 +39,10 @@ def main():
         background_color="#16130F",
         text_select=True,
     )
-    webview.start(debug=False)
+    try:
+        webview.start(debug=False)
+    finally:
+        guard.release()
 
 
 if __name__ == "__main__":

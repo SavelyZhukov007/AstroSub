@@ -86,3 +86,53 @@ web/                интерфейс (HTML/CSS/JS, SVG-иконки)
 - **Первый запуск:** проверка опциональных пакетов и выбор, что доустановить; невыбранное просто отключает связанные функции.
 
 > Возраст/пол берутся из InsightFace (genderage) — офлайн-замена OpenVINO. Камера и микрофон требуют разрешения WebView2.
+
+## Cross-platform release and LAN (v3)
+
+- Runtime first run is managed by `uv` in the per-user `Submind/runtime` folder: Python 3.10, import health checks, CPU/CUDA fallback, and install logs in `Submind/logs`.
+- If `submind-runtime-{platform}-{arch}.zip` sits next to the app, Submind installs from it offline. After an online install it builds that archive and asks whether to keep or delete the cache.
+- Desktop startup uses a single-instance guard. If older Submind processes exist, the app asks before closing them.
+- LAN API is separate from the local `127.0.0.1` media server and listens on `0.0.0.0`: `hello`, pairing, devices, jobs, chunks, complete, events, bundle.
+- The “Add phone” view shows QR/URL, linked devices, approve/reject/trust controls, and LAN job status.
+- Phones and other computers upload metadata, wait for approval, send video chunks with sha256, and receive a bundle with `project.json`, `subtitles.srt`, `subtitles.vtt`, `transcript.txt`, and `summary.md`.
+- iPhone is supported as a browser/PWA client. Android is supported as a Capacitor WebView debug APK with manual LAN URL fallback.
+- UI uses viewport breakpoints instead of per-device hardcoding: compact/mobile, tablet, desktop, ultrawide, safe-area, `dvh/svh`, orientation, and aspect-ratio handling.
+- The fullscreen player has custom controls, fullscreen captions, keyboard shortcuts, and touch seek.
+- Processing emits explicit stages and progress instead of silently sitting at 0%.
+
+## CI builds
+
+- Windows x64: `Submind.exe` zip.
+- Linux x86_64: tar.gz.
+- macOS x64 and arm64: `.app.zip`.
+- Android: Capacitor debug APK.
+
+PyInstaller runs on each target OS because it is not a cross-compiler. macOS signing/notarization are optional future CI secret steps.
+
+## 20-feature backlog
+
+Prioritized after stability:
+
+1. Batch queue.
+2. Smart chapters with thumbnails.
+3. Subtitle editor.
+4. Semantic project search.
+5. Clip export by chapter.
+
+Remaining backlog:
+
+6. Watch folder.
+7. Speaker timeline heatmap.
+8. Confidence heatmap.
+9. Silence/jump detection.
+10. Project share bundle.
+11. Anki/flashcard export.
+12. Meeting-minute templates.
+13. OCR frame search.
+14. Action items.
+15. Named entity index.
+16. Notes/bookmarks timeline.
+17. Reprocess history.
+18. GPU benchmark.
+19. Per-segment language detection.
+20. Privacy cleanup/report.

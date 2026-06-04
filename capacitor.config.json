@@ -1,0 +1,18 @@
+{
+  "appId": "ai.submind.app",
+  "appName": "Submind",
+  "webDir": "web",
+  "server": {
+    "androidScheme": "https",
+    "cleartext": true
+  },
+  "android": {
+    "allowMixedContent": true
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 400,
+      "backgroundColor": "#16130F"
+    }
+  }
+}

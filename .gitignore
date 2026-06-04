@@ -12,6 +12,8 @@ __pycache__
 .idea/
 .vscode/
 node_modules/
+android/
+.gradle/
 .env
 *.env
 *.db

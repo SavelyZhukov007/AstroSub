@@ -46,6 +46,10 @@ export const ICONS = {
   chip: S('<rect x="7" y="7" width="10" height="10" rx="2"/><path d="M10 3v2M14 3v2M10 19v2M14 19v2M3 10h2M3 14h2M19 10h2M19 14h2"/>'),
   cam: S('<path d="M4 7h3l1.5-2h7L17 7h3a0 0 0 0 1 0 0v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/><circle cx="12" cy="13" r="4"/>'),
   user: S('<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>'),
+  phone: S('<rect x="7" y="2.5" width="10" height="19" rx="2"/><path d="M10 18h4"/><path d="M10 5h4"/>'),
+  qr: S('<rect x="4" y="4" width="6" height="6"/><rect x="14" y="4" width="6" height="6"/><rect x="4" y="14" width="6" height="6"/><path d="M14 14h2v2h-2zM18 14h2M14 18h6M18 16v4"/>'),
+  link: S('<path d="M10 13a5 5 0 0 0 7 0l2-2a5 5 0 0 0-7-7l-1 1"/><path d="M14 11a5 5 0 0 0-7 0l-2 2a5 5 0 0 0 7 7l1-1"/>'),
+  volume: S('<path d="M4 10v4h4l5 4V6l-5 4z"/><path d="M16 9a4 4 0 0 1 0 6"/>'),
 };
 
 export function mountIcons(root = document) {

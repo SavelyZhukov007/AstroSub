@@ -23,6 +23,7 @@ ready().then(async (api) => {
   await refreshEnv();
   await refreshRecent();
   await maybeFirstRun();
+  if (API.__lan) showView("devices");
 });
 
 async function fetchLogo() {
@@ -95,8 +96,14 @@ function bindUI() {
   $("#btnPlay").addEventListener("click", () => (v.paused ? v.play() : v.pause()));
   v.addEventListener("play", () => ($("#btnPlay").innerHTML = ICONS.pause));
   v.addEventListener("pause", () => ($("#btnPlay").innerHTML = ICONS.play));
+  v.addEventListener("play", () => ($("#fsPlay").innerHTML = ICONS.pause));
+  v.addEventListener("pause", () => ($("#fsPlay").innerHTML = ICONS.play));
   v.addEventListener("timeupdate", onTime);
-  v.addEventListener("loadedmetadata", () => { state.duration = v.duration; $("#tcDur").textContent = fmt(v.duration); });
+  v.addEventListener("loadedmetadata", () => {
+    state.duration = v.duration;
+    $("#tcDur").textContent = fmt(v.duration);
+    $("#fsDur").textContent = fmt(v.duration);
+  });
   $("#seek").addEventListener("click", (e) => {
     const r = e.currentTarget.getBoundingClientRect();
     v.currentTime = ((e.clientX - r.left) / r.width) * (state.duration || v.duration || 0);
@@ -107,6 +114,7 @@ function bindUI() {
     if (document.fullscreenElement) document.exitFullscreen();
     else st.requestFullscreen && st.requestFullscreen();
   });
+  bindFullscreenPlayer();
 
   bindSplitter();
 
@@ -140,6 +148,9 @@ function bindUI() {
   $("#modelsClose").addEventListener("click", () => $("#modelsOverlay").classList.remove("open"));
   $("#modelsDone").addEventListener("click", () => $("#modelsOverlay").classList.remove("open"));
   $("#pullBtn").addEventListener("click", () => { const n = $("#pullName").value.trim(); if (n) API.pull_model(n); });
+  $("#lanConnect").addEventListener("click", connectLanBase);
+  $("#refreshLan").addEventListener("click", refreshDevices);
+  $("#mobileSend").addEventListener("click", sendMobileVideo);
 
   bindChat();
   bindFaceId();
@@ -148,12 +159,13 @@ function bindUI() {
 
 function showView(view) {
   $$(".rail-btn").forEach((x) => x.classList.toggle("active", x.dataset.view === view));
-  const map = { editor: "#viewEditor", welcome: "#viewWelcome", chat: "#viewChat", faceid: "#viewFaceid", lab: "#viewLab" };
+  const map = { editor: "#viewEditor", welcome: "#viewWelcome", chat: "#viewChat", faceid: "#viewFaceid", lab: "#viewLab", devices: "#viewDevices" };
   Object.entries(map).forEach(([k, sel]) => $(sel).classList.toggle("hidden", k !== view));
   if (view === "welcome") refreshRecent();
   if (view === "chat") populateChatAttach();
   if (view === "faceid") refreshFidList();
   if (view === "lab") { refreshKnown(); populateCompare(); }
+  if (view === "devices") refreshDevices();
 }
 
 /* ----------------------------------------------------- splitter */
@@ -173,6 +185,38 @@ function bindSplitter() {
     pct = Math.max(30, Math.min(75, pct));
     ed.style.setProperty("--vw", pct + "%");
     resizeMesh();
+  });
+}
+
+function bindFullscreenPlayer() {
+  const v = $("#video");
+  const clickSeek = (el, e) => {
+    const r = el.getBoundingClientRect();
+    v.currentTime = ((e.clientX - r.left) / r.width) * (state.duration || v.duration || 0);
+  };
+  $("#fsPlay").addEventListener("click", () => (v.paused ? v.play() : v.pause()));
+  $("#fsSeek").addEventListener("click", (e) => clickSeek(e.currentTarget, e));
+  $("#fsMute").addEventListener("click", () => { v.muted = !v.muted; $("#fsMute").classList.toggle("active", v.muted); });
+  $("#fsSpeed").addEventListener("change", (e) => { v.playbackRate = parseFloat(e.target.value) || 1; });
+  $("#fsCaptions").addEventListener("click", () => {
+    $("#liveCap").classList.toggle("hidden");
+    $("#fsCaption").classList.toggle("hidden");
+  });
+  $("#fsExit").addEventListener("click", () => document.fullscreenElement && document.exitFullscreen());
+  document.addEventListener("fullscreenchange", () => $("#stage").classList.toggle("is-fullscreen", !!document.fullscreenElement));
+  let touchStartX = 0;
+  $("#stage").addEventListener("touchstart", (e) => { touchStartX = e.changedTouches[0]?.clientX || 0; }, { passive: true });
+  $("#stage").addEventListener("touchend", (e) => {
+    if (!document.fullscreenElement) return;
+    const dx = (e.changedTouches[0]?.clientX || 0) - touchStartX;
+    if (Math.abs(dx) > 45) v.currentTime = Math.max(0, Math.min(v.duration || 0, v.currentTime + (dx > 0 ? 10 : -10)));
+  }, { passive: true });
+  document.addEventListener("keydown", (e) => {
+    if (!document.fullscreenElement) return;
+    if (e.code === "Space") { e.preventDefault(); v.paused ? v.play() : v.pause(); }
+    if (e.code === "ArrowLeft") v.currentTime = Math.max(0, v.currentTime - 5);
+    if (e.code === "ArrowRight") v.currentTime = Math.min(v.duration || 0, v.currentTime + 5);
+    if (e.code === "Escape" && document.fullscreenElement) document.exitFullscreen();
   });
 }
 
@@ -311,8 +355,20 @@ function bindBus() {
   on("pull:done", async (d) => { $("#pullStatus").textContent = d.ok ? "Готово" : ("Ошибка: " + d.error); await openModels(); refreshEnv(); });
 
   on("install:start", () => { $("#installProgress").classList.remove("hidden"); });
-  on("install:progress", (d) => { $("#installFill").style.width = Math.round(d.progress * 100) + "%"; $("#installStatus").textContent = d.text; });
+  on("install:progress", (d) => {
+    if (typeof d.progress === "number") $("#installFill").style.width = Math.round(d.progress * 100) + "%";
+    const parts = [d.text || ""];
+    if (d.package) parts.push(d.package);
+    if (d.eta) parts.push("ETA " + fmt(d.eta));
+    if (d.disk_bps) parts.push(humanBytes(d.disk_bps) + "/s disk");
+    $("#installStatus").textContent = parts.filter(Boolean).join(" · ");
+    if (d.log_path) {
+      $("#installLog").classList.remove("hidden");
+      $("#installLog").textContent = `log: ${d.log_path}\n${d.stage || ""}`;
+    }
+  });
   on("install:done", (d) => {
+    if (handleInstallDone(d)) return;
     if (d && d.ok === false) {
       const failed = (d.failed || []).map((x) => x.package).join(", ");
       $("#installStatus").textContent = failed ? `Не удалось установить: ${failed}` : "Установка завершилась с ошибкой.";
@@ -323,6 +379,13 @@ function bindBus() {
     setTimeout(finishFirstRun, 1200);
     refreshEnv();
   });
+
+  on("mobile:upload_progress", (d) => setMobileUpload(d.progress || 0, d.text || "Передача видео"));
+  on("lan:pair_request", refreshDevices);
+  on("lan:job_request", refreshDevices);
+  on("lan:job_queued", refreshDevices);
+  on("lan:job_done", refreshDevices);
+  on("lan:job_failed", refreshDevices);
 
   // lab
   on("flashcards:start", () => { $("#cardsOut").innerHTML = `<span class="spinner"></span>`; });
@@ -335,6 +398,28 @@ function setProc(frac, label, eta) {
   $("#procFill").style.width = pct + "%";
   if (label) $("#procLabel").textContent = label;
   $("#procEta").textContent = eta ? "осталось ~" + fmt(eta) : "";
+}
+
+function handleInstallDone(d) {
+  if (d && d.ok === false) {
+    const failed = (d.failed || []).map((x) => x.package || x.module).join(", ");
+    $("#installStatus").textContent = failed ? `Не удалось установить: ${failed}` : "Установка завершилась с ошибкой.";
+    if (d.log_path) {
+      $("#installLog").classList.remove("hidden");
+      $("#installLog").textContent = `log: ${d.log_path}`;
+    }
+    refreshEnv();
+    return true;
+  }
+  if (d && d.archive_exists) {
+    $("#installStatus").innerHTML = `Готово. Offline-cache собран: ${escapeHtml(d.archive || "")}
+      <span class="inline-actions"><button class="btn ghost" id="cacheDelete">Удалить cache</button><button class="btn primary" id="cacheKeep">Оставить</button></span>`;
+    $("#cacheDelete").addEventListener("click", async () => { await API.keep_runtime_archive(false); finishFirstRun(); });
+    $("#cacheKeep").addEventListener("click", finishFirstRun);
+    refreshEnv();
+    return true;
+  }
+  return false;
 }
 
 /* ----------------------------------------------------- segments / time */
@@ -357,6 +442,9 @@ function onTime() {
   const t = $("#video").currentTime;
   $("#tcCur").textContent = fmt(t);
   $("#seekFill").style.width = (state.duration ? (t / state.duration) * 100 : 0) + "%";
+  $("#fsCur").textContent = fmt(t);
+  $("#fsDur").textContent = fmt(state.duration || $("#video").duration || 0);
+  $("#fsSeekFill").style.width = (state.duration ? (t / state.duration) * 100 : 0) + "%";
   let active = null;
   const segs = $$(".seg");
   for (const s of segs) { const seg = state.segments[+s.dataset.i]; if (seg && t >= seg.start && t <= seg.end) { active = s; break; } }
@@ -366,6 +454,7 @@ function onTime() {
     const seg = state.segments[+active.dataset.i];
     $("#liveCap").innerHTML = (seg.words || []).map((w) =>
       `<span class="w ${t >= w.start && t <= w.end ? "on" : ""}">${escapeHtml(w.word)}</span>`).join("") || escapeHtml(seg.text);
+    $("#fsCaption").innerHTML = $("#liveCap").innerHTML;
     active.querySelectorAll(".w").forEach((w) => w.classList.toggle("on", t >= +w.dataset.s && t <= +w.dataset.e));
   }
   if (state.meshOn) drawMesh(t);
@@ -707,6 +796,87 @@ function runInstall() {
 }
 async function finishFirstRun() { await API.finish_first_run(); $("#installOverlay").classList.remove("open"); }
 
+/* ----------------------------------------------------- LAN devices */
+async function connectLanBase() {
+  const url = $("#lanManualUrl").value.trim().replace(/\/$/, "");
+  if (!url) return;
+  if (!API.set_lan_base) { $("#lanUrl").textContent = "Ручной LAN URL нужен для мобильного WebView."; return; }
+  try {
+    await API.set_lan_base(url);
+    SERVER_BASE = url;
+    await refreshDevices();
+  } catch (e) {
+    $("#lanUrl").textContent = "Не удалось подключиться: " + e.message;
+  }
+}
+
+async function refreshDevices() {
+  if (!API || !API.lan_info) return;
+  try {
+    const info = await API.lan_info();
+    $("#lanQr").innerHTML = info.qr_svg || `<p class="muted">QR пока недоступен.</p>`;
+    $("#lanUrl").textContent = info.pair_url || info.url || "LAN URL недоступен";
+
+    const devices = API.lan_devices ? await API.lan_devices() : [];
+    $("#deviceList").innerHTML = devices.length ? devices.map((d) => `
+      <div class="lan-item">
+        <div>
+          <b>${escapeHtml(d.name || "LAN device")}</b>
+          <p class="muted">${escapeHtml(d.kind || "unknown")} · ${d.trusted ? "доверенное" : "требует подтверждения"}</p>
+        </div>
+        ${API.lan_trust_device ? `<button class="btn ghost" data-trust="${escapeAttr(d.id)}">${d.trusted ? "Отвязать" : "Доверять"}</button>` : ""}
+      </div>`).join("") : `<p class="muted">Пока нет устройств.</p>`;
+    $$("#deviceList [data-trust]").forEach((b) => b.addEventListener("click", async () => {
+      const row = devices.find((d) => d.id === b.dataset.trust);
+      await API.lan_trust_device(b.dataset.trust, !(row && row.trusted));
+      refreshDevices();
+    }));
+
+    const jobs = API.lan_jobs ? await API.lan_jobs() : [];
+    const lanBase = (info.url || "").replace(/\/$/, "");
+    $("#lanJobs").innerHTML = jobs.length ? jobs.slice().reverse().map((j) => `
+      <div class="lan-item">
+        <div>
+          <b>${escapeHtml(j.filename || j.id)}</b>
+          <p class="muted">${escapeHtml((j.device && j.device.name) || "LAN")} · ${escapeHtml(j.status || "")} · ${escapeHtml(j.message || "")}</p>
+        </div>
+        ${j.status === "pending" && API.lan_approve_job ? `<span class="inline-actions"><button class="btn ghost" data-reject="${escapeAttr(j.id)}">Отклонить</button><button class="btn primary" data-approve="${escapeAttr(j.id)}">Принять</button></span>` : ""}
+        ${j.status === "done" && j.project_id && lanBase ? `<a class="btn ghost" href="${lanBase}/api/projects/${encodeURIComponent(j.project_id)}/bundle">Bundle</a>` : ""}
+      </div>`).join("") : `<p class="muted">Очередь пуста.</p>`;
+    $$("#lanJobs [data-approve]").forEach((b) => b.addEventListener("click", async () => { await API.lan_approve_job(b.dataset.approve, true); refreshDevices(); }));
+    $$("#lanJobs [data-reject]").forEach((b) => b.addEventListener("click", async () => { await API.lan_approve_job(b.dataset.reject, false); refreshDevices(); }));
+  } catch (e) {
+    $("#lanUrl").textContent = "LAN недоступен: " + compactError(e.message);
+  }
+}
+
+async function sendMobileVideo() {
+  const file = $("#mobileVideo").files[0];
+  if (!file) { setMobileUpload(0, "Выберите видео или аудио"); return; }
+  if (!API.upload_lan_file) { setMobileUpload(0, "Откройте этот экран с телефона по QR-коду"); return; }
+  const options = {
+    subtitles: $("#mobSub").checked,
+    summary: $("#mobSummary").checked,
+    glossary: $("#mobGlossary").checked,
+    chapters: $("#mobChapters").checked,
+    speakers: false,
+  };
+  try {
+    setMobileUpload(0.01, "Создание заявки");
+    const r = await API.upload_lan_file(file, options);
+    setMobileUpload(1, r && r.job ? "Видео поставлено в очередь" : "Готово");
+    refreshDevices();
+  } catch (e) {
+    setMobileUpload(0, "Ошибка: " + e.message);
+  }
+}
+
+function setMobileUpload(frac, text) {
+  $("#mobileUploadProgress").classList.remove("hidden");
+  $("#mobileUploadFill").style.width = Math.round((frac || 0) * 100) + "%";
+  $("#mobileUploadStatus").textContent = text || "";
+}
+
 /* ----------------------------------------------------- export */
 function exportMenu() {
   const old = $("#expMenu"); if (old) { old.remove(); return; }
@@ -777,8 +947,16 @@ function tc(s) { return fmt(s); }
 function isInView(el) { const r = el.getBoundingClientRect(), p = el.parentElement.getBoundingClientRect(); return r.top >= p.top && r.bottom <= p.bottom; }
 function escapeHtml(s) { return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
 function escapeAttr(s) { return escapeHtml(s).replace(/"/g, "&quot;"); }
+function compactError(s) { return String(s || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 180) || "нет ответа"; }
 function toFileUri(p) { if (!p) return ""; if (SERVER_BASE) return SERVER_BASE + "/local?p=" + encodeURIComponent(p); let s = String(p).replace(/\\/g, "/"); if (!s.startsWith("/")) s = "/" + s; return "file://" + encodeURI(s); }
 function debounce(fn, ms) { let id; return (...a) => { clearTimeout(id); id = setTimeout(() => fn(...a), ms); }; }
+function humanBytes(n) {
+  n = Math.max(0, Number(n) || 0);
+  const units = ["B", "KB", "MB", "GB"];
+  let i = 0;
+  while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; }
+  return `${n >= 10 || i === 0 ? Math.round(n) : n.toFixed(1)} ${units[i]}`;
+}
 function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 
 /* применяем сохранённую ширину сплита */

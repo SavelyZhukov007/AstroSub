@@ -197,11 +197,13 @@ def cmd_build(args):
     if icon.exists():
         cmd += ["--icon", str(icon)]
 
-    # Тяжёлые ML-зависимости ставятся мастером первого запуска в %APPDATA%\Submind\packages.
+    # Тяжёлые ML-зависимости ставятся мастером первого запуска в managed runtime
+    # (%APPDATA%\Submind\runtime\.venv или платформенный аналог).
     # Так новый exe стартует чистым, а обновления не тащат хвосты старой сборки.
     for mod in ("faster_whisper", "ctranslate2", "onnxruntime", "cv2", "numpy", "sklearn", "insightface", "mediapipe", "torch"):
         cmd += ["--exclude-module", mod]
     cmd += ["--hidden-import", "pip._internal.cli.main"]
+    cmd += ["--hidden-import", "qrcode.image.svg"]
 
     cmd.append(str(ENTRY))
     run(cmd)

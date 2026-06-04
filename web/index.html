@@ -15,6 +15,7 @@
       <div class="rail-btn" data-view="chat" title="Чат с Qwen"><span data-icon="chat"></span></div>
       <div class="rail-btn" data-view="faceid" title="FaceID"><span data-icon="faceid"></span></div>
       <div class="rail-btn" data-view="lab" title="Сервисы"><span data-icon="spark"></span></div>
+      <div class="rail-btn" data-view="devices" title="Добавить телефон"><span data-icon="phone"></span></div>
       <div class="rail-btn" data-view="welcome" title="Проекты"><span data-icon="layers"></span></div>
       <div class="spacer"></div>
       <div class="rail-btn" id="btnSettings" title="Настройки"><span data-icon="settings"></span></div>
@@ -62,6 +63,23 @@
             <video id="video" class="hidden" playsinline></video>
             <canvas class="mesh hidden" id="mesh"></canvas>
             <button class="stage-fs" id="btnFullscreen" title="Во весь экран"><span data-icon="fullscreen"></span></button>
+            <div class="fs-caption" id="fsCaption"></div>
+            <div class="fs-player" id="fsPlayer">
+              <button class="iconbtn" id="fsPlay"><span data-icon="play"></span></button>
+              <span class="tc" id="fsCur">00:00:00</span>
+              <div class="seek fs-seek" id="fsSeek"><div class="track"></div><div class="fill" id="fsSeekFill"></div></div>
+              <span class="tc" id="fsDur">00:00:00</span>
+              <button class="iconbtn" id="fsMute"><span data-icon="volume"></span></button>
+              <select id="fsSpeed" class="mini-select" title="Скорость">
+                <option value="0.75">0.75x</option>
+                <option value="1" selected>1x</option>
+                <option value="1.25">1.25x</option>
+                <option value="1.5">1.5x</option>
+                <option value="2">2x</option>
+              </select>
+              <button class="iconbtn" id="fsCaptions"><span data-icon="captions"></span></button>
+              <button class="iconbtn" id="fsExit"><span data-icon="close"></span></button>
+            </div>
 
             <!-- оверлей обработки -->
             <div class="proc hidden" id="proc">
@@ -213,6 +231,43 @@
         </div>
       </div>
 
+      <!-- ====================== УСТРОЙСТВА ====================== -->
+      <div id="viewDevices" class="view devices scroll hidden">
+        <div class="devices-wrap">
+          <h2 class="sect"><span data-icon="phone"></span> Добавить телефон</h2>
+          <div class="device-grid">
+            <section class="device-panel">
+              <h3>Подключение по локальной сети</h3>
+              <div class="qr-box" id="lanQr"></div>
+              <div class="copy-url" id="lanUrl">LAN URL появится после запуска сервера</div>
+              <div class="field compact-field"><span data-icon="link"></span><input id="lanManualUrl" placeholder="http://192.168.1.10:5000" /><button class="btn" id="lanConnect">OK</button></div>
+              <button class="btn" id="refreshLan"><span data-icon="qr"></span>Обновить</button>
+            </section>
+            <section class="device-panel">
+              <h3>Связанные устройства</h3>
+              <div id="deviceList"><p class="muted">Пока нет устройств.</p></div>
+            </section>
+            <section class="device-panel mobile-upload">
+              <h3>Отправить видео на этот компьютер</h3>
+              <input type="file" id="mobileVideo" accept="video/*,audio/*" />
+              <div class="opt-grid mini">
+                <label><input type="checkbox" id="mobSub" checked /> Субтитры</label>
+                <label><input type="checkbox" id="mobSummary" checked /> Конспект</label>
+                <label><input type="checkbox" id="mobGlossary" /> Глоссарий</label>
+                <label><input type="checkbox" id="mobChapters" /> Главы</label>
+              </div>
+              <button class="btn primary" id="mobileSend"><span data-icon="send"></span>Отправить</button>
+              <div class="install-progress hidden" id="mobileUploadProgress"><div id="mobileUploadFill"></div></div>
+              <div class="muted" id="mobileUploadStatus"></div>
+            </section>
+            <section class="device-panel">
+              <h3>LAN-задачи</h3>
+              <div id="lanJobs"><p class="muted">Очередь пуста.</p></div>
+            </section>
+          </div>
+        </div>
+      </div>
+
       <footer class="statusbar">
         <span id="statusText">Готов</span>
         <span class="grow"></span>
@@ -270,6 +325,7 @@
         <div id="installList"></div>
         <div class="install-progress hidden" id="installProgress"><div id="installFill"></div></div>
         <div class="muted" id="installStatus"></div>
+        <pre class="install-log hidden" id="installLog"></pre>
       </div>
       <div class="mf">
         <button class="btn ghost" id="installSkip">Пропустить</button>

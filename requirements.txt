@@ -6,6 +6,7 @@ faster-whisper>=1.0.0   # быстрый Whisper на CTranslate2, word-level т
 
 # --- LLM: общение с Ollama/Qwen по HTTP ---
 requests>=2.31
+qrcode[pil]>=8.0       # QR-пейринг телефона/компьютера по LAN
 
 # --- распознавание / идентификация лиц ---
 insightface>=0.7.3      # ArcFace-эмбеддинги (стабильная идентичность спикеров)

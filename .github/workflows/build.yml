@@ -1,0 +1,105 @@
+name: build
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  desktop:
+    name: desktop-${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: windows-x64
+            os: windows-latest
+            build_args: ""
+            archive: windows
+          - name: linux-x86_64
+            os: ubuntu-latest
+            build_args: ""
+            archive: linux
+          - name: macos-x64
+            os: macos-13
+            build_args: "--onedir"
+            archive: mac
+          - name: macos-arm64
+            os: macos-14
+            build_args: "--onedir"
+            archive: mac
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          python -m pip install -r requirements.txt
+
+      - name: Smoke compile
+        run: |
+          python -m compileall app build.py
+          python -c "from app.core.runtime import packages_for; assert packages_for(['asr'])"
+
+      - name: Build desktop artifact
+        run: python build.py build ${{ matrix.build_args }}
+
+      - name: Package Windows
+        if: matrix.archive == 'windows'
+        shell: pwsh
+        run: Compress-Archive -Path dist/Submind.exe -DestinationPath submind-windows-x64.zip -Force
+
+      - name: Package Linux
+        if: matrix.archive == 'linux'
+        run: tar -czf submind-linux-x86_64.tar.gz -C dist Submind
+
+      - name: Package macOS
+        if: matrix.archive == 'mac'
+        run: ditto -c -k --sequesterRsrc --keepParent dist/Submind.app submind-${{ matrix.name }}.app.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: submind-${{ matrix.name }}
+          path: |
+            submind-*.zip
+            submind-*.tar.gz
+
+  android:
+    name: android-debug-apk
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install npm dependencies
+        run: npm install
+
+      - name: Generate Android project
+        run: npx cap add android
+
+      - name: Sync web assets
+        run: npx cap sync android
+
+      - name: Build debug APK
+        run: cd android && ./gradlew assembleDebug
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: submind-android-debug
+          path: android/app/build/outputs/apk/debug/*.apk

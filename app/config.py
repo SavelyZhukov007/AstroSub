@@ -2,6 +2,7 @@
 """Конфигурация, пути приложения и постоянные настройки."""
 import json
 import os
+import platform
 import sys
 from pathlib import Path
 
@@ -53,10 +54,79 @@ def packages_dir() -> Path:
     return _sub("packages")
 
 
+def runtime_dir() -> Path:
+    return _sub("runtime")
+
+
+def logs_dir() -> Path:
+    return _sub("logs")
+
+
+def lan_dir() -> Path:
+    return _sub("lan")
+
+
+def uploads_dir() -> Path:
+    return _sub("uploads")
+
+
+def device_id_path() -> Path:
+    return user_data_dir() / "device-id.txt"
+
+
+def device_id() -> str:
+    p = device_id_path()
+    if p.exists():
+        try:
+            value = p.read_text(encoding="utf-8").strip()
+            if value:
+                return value
+        except Exception:
+            pass
+    import uuid
+    value = uuid.uuid4().hex
+    p.write_text(value, encoding="utf-8")
+    return value
+
+
+def runtime_archive_name() -> str:
+    system = platform.system().lower() or "unknown"
+    machine = platform.machine().lower().replace("amd64", "x86_64")
+    return f"submind-runtime-{system}-{machine}.zip"
+
+
+def executable_dir() -> Path:
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return app_root()
+
+
+def runtime_archive_path() -> Path:
+    return executable_dir() / runtime_archive_name()
+
+
+def runtime_python() -> Path:
+    base = runtime_dir() / ".venv"
+    if os.name == "nt":
+        return base / "Scripts" / "python.exe"
+    return base / "bin" / "python"
+
+
+def _runtime_site_packages() -> list[Path]:
+    base = runtime_dir() / ".venv"
+    candidates = [
+        base / "Lib" / "site-packages",
+    ]
+    lib = base / "lib"
+    if lib.exists():
+        candidates.extend(lib.glob("python*/site-packages"))
+    return candidates
+
+
 def bootstrap_runtime_packages() -> Path:
     """Подключает пакеты, скачанные мастером первого запуска."""
     d = packages_dir()
-    candidates = [
+    candidates = _runtime_site_packages() + [
         d,
         d / "Lib" / "site-packages",
     ]
@@ -74,6 +144,13 @@ def bootstrap_runtime_packages() -> Path:
             d / "nvidia" / "cublas" / "bin",
             d / "nvidia" / "cudnn" / "bin",
         ]
+        for site in _runtime_site_packages():
+            dll_dirs.extend([
+                site / "onnxruntime" / "capi",
+                site / "torch" / "lib",
+                site / "nvidia" / "cublas" / "bin",
+                site / "nvidia" / "cudnn" / "bin",
+            ])
         path_parts = []
         for p in dll_dirs:
             if p.exists():
@@ -102,6 +179,8 @@ def current_build_id() -> str:
 DEVICE_PATH = user_data_dir() / "device.json"
 FACEDB_PATH = user_data_dir() / "facedb.json"
 CHATS_PATH = user_data_dir() / "chats.json"
+DEVICES_PATH = lan_dir() / "devices.json"
+LAN_JOBS_PATH = lan_dir() / "jobs.json"
 
 
 DEFAULTS = {

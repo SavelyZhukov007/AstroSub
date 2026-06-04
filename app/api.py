@@ -16,7 +16,7 @@ import webview
 
 from . import config
 from .core import (device, diarize, export, facedb, faceid, faces, install,
-                   llm, media, project, server, transcribe)
+                   lan, llm, media, project, server, transcribe)
 
 
 def _esc(s: str) -> str:
@@ -66,6 +66,15 @@ class Api:
         self._faceid = None
         self._llm = None
         self._server = server.MediaServer()
+        self._lan = lan.LanServer(
+            web_root=config.web_dir(),
+            on_event=lambda e, p: self._emit(e, p),
+            on_complete=self._process_lan_job,
+        )
+        try:
+            self._lan.start()
+        except Exception:
+            pass
         try:
             self._server.set_data_root(config.user_data_dir())
         except Exception:
@@ -137,6 +146,7 @@ class Api:
             "first_run_done": first_run_done,
             "build_id": build_id,
             "server_base": self._safe_base(),
+            "lan": self.lan_info(),
         }
 
     def _safe_base(self):
@@ -152,8 +162,10 @@ class Api:
             return ""
 
     def install_packages(self, keys):
-        def prog(f, t):
-            self._emit("install:progress", {"progress": f, "text": t})
+        def prog(payload):
+            if not isinstance(payload, dict):
+                payload = {"progress": 0, "text": str(payload)}
+            self._emit("install:progress", payload)
         self._emit("install:start", {})
         def run():
             res = install.install(keys or [], on_progress=prog,
@@ -166,6 +178,63 @@ class Api:
             self._emit("install:done", res)
         self._bg(run)
         return {"ok": True}
+
+    def runtime_health(self):
+        from .core import runtime
+        return runtime.health_check()
+
+    def keep_runtime_archive(self, keep=True):
+        p = config.runtime_archive_path()
+        if not keep and p.exists():
+            try:
+                p.unlink()
+            except Exception:
+                return {"ok": False, "path": str(p)}
+        return {"ok": True, "path": str(p), "exists": p.exists()}
+
+    # ------------------------------------------------------------------ #
+    #  LAN / устройства
+    # ------------------------------------------------------------------ #
+    def lan_info(self):
+        try:
+            return self._lan.pairing_payload()
+        except Exception:
+            return {"urls": [], "url": "", "pair_url": "", "token": "", "qr_svg": ""}
+
+    def lan_devices(self):
+        return self._lan.devices.all()
+
+    def lan_jobs(self):
+        return list(self._lan.jobs.all().values())
+
+    def lan_trust_device(self, device_id, trusted=True):
+        return {"ok": self._lan.trust_device(device_id, trusted)}
+
+    def lan_approve_job(self, job_id, approved=True):
+        job = self._lan.approve_job(job_id, approved)
+        return {"ok": bool(job), "job": job}
+
+    def _process_lan_job(self, job):
+        try:
+            self._lan.jobs.save({**job, "status": "processing", "message": "Обработка на Submind"})
+            self.project = project.new_project(job["video_path"])
+            self.project["duration"] = media.probe_duration(job["video_path"])
+            self._do_process(job.get("options") or {"subtitles": True})
+            saved = project.save(self.project)
+            done = dict(job)
+            done.update({
+                "status": "done",
+                "message": "Готово",
+                "project_id": self.project["id"],
+                "project_path": saved,
+            })
+            self._lan.jobs.save(done)
+            self._emit("lan:job_done", {"job": done})
+        except Exception as e:  # noqa: BLE001
+            failed = dict(job)
+            failed.update({"status": "failed", "message": str(e)})
+            self._lan.jobs.save(failed)
+            self._emit("lan:job_failed", {"job": failed})
 
     def finish_first_run(self):
         config.save_settings({
@@ -310,11 +379,15 @@ class Api:
 
     def _step_subtitles(self, prog, translate):
         p = self.project
+        prog.update("subtitles", 0.02, "Извлечение аудио")
         audio = media.extract_audio(p["video_path"])
+        prog.update("subtitles", 0.07, "Загрузка модели Whisper")
         tr = self._get_transcriber()
+        tr.load()
+        prog.update("subtitles", 0.11, "Распознавание речи")
         res = tr.transcribe(
             audio, language=self.settings["language"], translate=translate,
-            on_progress=lambda f, t: prog.update("subtitles", f, t),
+            on_progress=lambda f, t: prog.update("subtitles", 0.11 + (f * 0.89), t),
             total_duration=p["duration"])
         p["segments"] = res["segments"]
         p["language"] = res["language"]
