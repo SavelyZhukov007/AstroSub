@@ -23,6 +23,23 @@ def _esc(s: str) -> str:
     return json.dumps(s, ensure_ascii=False)
 
 
+def friendly_error(exc) -> str:
+    text = str(exc or "")
+    low = text.lower()
+    if any(x in low for x in ("cublas", "cudnn", "cublas64", "cudnn64")):
+        return (
+            "CUDA-библиотеки не загружены. Submind переключит распознавание на CPU; "
+            "для GPU установите CUDA runtime/cuBLAS/cuDNN версии, совместимой с faster-whisper."
+        )
+    if "ffmpeg" in low or "failed to open" in low:
+        return "Не удалось прочитать аудио/видео через ffmpeg. Проверьте файл или установку ffmpeg."
+    if "no module named" in low:
+        return "Не установлен нужный Python-пакет: " + text
+    if "ollama" in low:
+        return "Ollama/Qwen не ответил: " + text
+    return text or "Неизвестная ошибка"
+
+
 class Progress:
     """Сводный прогресс по нескольким шагам + оценка оставшегося времени."""
 
@@ -102,7 +119,36 @@ class Api:
         try:
             fn(*a, **k)
         except Exception as e:  # noqa: BLE001
-            self._emit("error", {"message": str(e), "trace": traceback.format_exc()})
+            self._emit("error", {
+                "message": friendly_error(e),
+                "raw": str(e),
+                "trace": traceback.format_exc(),
+            })
+
+    def _warning(self, message, **extra):
+        payload = {"message": message}
+        payload.update(extra)
+        self._emit("process:warning", payload)
+
+    def _heartbeat_call(self, prog, key, frac, label, fn, interval=1.0):
+        box = {}
+
+        def runner():
+            try:
+                box["result"] = fn()
+            except Exception as exc:  # noqa: BLE001
+                box["error"] = exc
+
+        t = threading.Thread(target=runner, daemon=True)
+        t.start()
+        start = time.time()
+        while t.is_alive():
+            elapsed = int(time.time() - start)
+            prog.update(key, frac, f"{label} ({elapsed}s)")
+            time.sleep(interval)
+        if "error" in box:
+            raise box["error"]
+        return box.get("result")
 
     # ------------------------------------------------------------------ #
     #  Окружение / устройство / установка
@@ -363,11 +409,23 @@ class Api:
         if p.get("segments"):
             text = " ".join(s["text"] for s in p["segments"])
             if opt.get("summary"):
-                self._step_summary(prog, text)
+                try:
+                    self._step_summary(prog, text)
+                except Exception as exc:  # noqa: BLE001
+                    prog.done("summary")
+                    self._warning("Конспект пропущен: " + friendly_error(exc), step="summary")
             if opt.get("glossary"):
-                self._step_glossary(prog, text)
+                try:
+                    self._step_glossary(prog, text)
+                except Exception as exc:  # noqa: BLE001
+                    prog.done("glossary")
+                    self._warning("Глоссарий пропущен: " + friendly_error(exc), step="glossary")
             if opt.get("chapters"):
-                self._step_chapters(prog)
+                try:
+                    self._step_chapters(prog)
+                except Exception as exc:  # noqa: BLE001
+                    prog.done("chapters")
+                    self._warning("Главы пропущены: " + friendly_error(exc), step="chapters")
 
         project.save(p)
         self._emit("process:done", {
@@ -380,10 +438,17 @@ class Api:
     def _step_subtitles(self, prog, translate):
         p = self.project
         prog.update("subtitles", 0.02, "Извлечение аудио")
-        audio = media.extract_audio(p["video_path"])
+        audio = self._heartbeat_call(
+            prog, "subtitles", 0.035, "Извлечение аудио",
+            lambda: media.extract_audio(p["video_path"]),
+        )
         prog.update("subtitles", 0.07, "Загрузка модели Whisper")
         tr = self._get_transcriber()
-        tr.load()
+        self._heartbeat_call(
+            prog, "subtitles", 0.075,
+            "Загрузка Whisper; первый запуск может скачать модель",
+            tr.load,
+        )
         prog.update("subtitles", 0.11, "Распознавание речи")
         res = tr.transcribe(
             audio, language=self.settings["language"], translate=translate,
@@ -397,9 +462,18 @@ class Api:
 
     def _step_speakers(self, prog):
         p = self.project
-        eng = self._get_faces()
-        res = eng.analyze(p["video_path"],
-                          on_progress=lambda f, t: prog.update("speakers", f, t))
+        try:
+            eng = self._get_faces()
+            res = eng.analyze(p["video_path"],
+                              on_progress=lambda f, t: prog.update("speakers", f, t))
+        except Exception as exc:  # noqa: BLE001
+            self._faces = None
+            p["persons"] = []
+            p["face_timeline"] = []
+            prog.done("speakers")
+            self._warning("Лица/спикеры пропущены: " + friendly_error(exc), step="speakers")
+            self._emit("speakers:ready", {"persons": []})
+            return
         p["persons"] = res["persons"]
         p["face_timeline"] = res["timeline"]
         prog.done("speakers")
@@ -615,11 +689,27 @@ class Api:
         self._bg(self._do_voice, b64)
         return {"ok": True}
 
+    def transcribe_voice_live(self, b64, seq=0, final=False):
+        self._bg(self._do_voice_live, b64, int(seq or 0), bool(final))
+        return {"ok": True}
+
+    def _do_voice_live(self, b64, seq, final):
+        try:
+            path = media.save_b64_audio(b64, ".webm")
+            text = self._get_transcriber().quick(path, self.settings["language"])
+            event = "voice:done" if final else "voice:partial"
+            self._emit(event, {"text": text, "seq": seq, "final": final})
+        except Exception as exc:  # noqa: BLE001
+            self._emit("voice:error", {"message": friendly_error(exc), "seq": seq, "final": final})
+
     def _do_voice(self, b64):
         self._emit("voice:start", {})
-        path = media.save_b64_audio(b64, ".webm")
-        text = self._get_transcriber().quick(path, self.settings["language"])
-        self._emit("voice:done", {"text": text})
+        try:
+            path = media.save_b64_audio(b64, ".webm")
+            text = self._get_transcriber().quick(path, self.settings["language"])
+            self._emit("voice:done", {"text": text})
+        except Exception as exc:  # noqa: BLE001
+            self._emit("voice:error", {"message": friendly_error(exc), "final": True})
 
     # ------------------------------------------------------------------ #
     #  Сервис FaceID

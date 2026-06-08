@@ -92,6 +92,7 @@
               <div class="proc-bar"><div id="procFill"></div></div>
               <div class="proc-eta" id="procEta"></div>
               <div class="proc-steps" id="procSteps"></div>
+              <div class="proc-error hidden" id="procError"></div>
             </div>
           </div>
 
@@ -279,6 +280,11 @@
 
   <!-- всплывашка «Подробнее» -->
   <div class="explain-pop" id="explainPop"><span data-icon="spark"></span>Подробнее</div>
+  <div class="toast hidden" id="toast">
+    <div class="toast-title">Ошибка</div>
+    <div class="toast-text" id="toastText"></div>
+    <button class="iconbtn" id="toastClose"><span data-icon="close"></span></button>
+  </div>
 
   <!-- drawer ответов Qwen -->
   <aside class="drawer" id="drawer">

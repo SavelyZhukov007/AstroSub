@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Работа с медиа через ffmpeg/ffprobe и opencv."""
 import json
+import os
 import shutil
 import subprocess
 import tempfile
@@ -41,13 +42,18 @@ def extract_audio(path: str, sample_rate: int = 16000) -> str:
     if not has_ffmpeg():
         # Whisper умеет читать видео напрямую через av, но WAV надёжнее
         return path
-    tmp = Path(tempfile.gettempdir()) / ("submind_%d.wav" % abs(hash(path)))
-    subprocess.run(
+    tmp = Path(tempfile.gettempdir()) / ("submind_%d_%d.wav" % (abs(hash(path)), os.getpid()))
+    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
+    res = subprocess.run(
         ["ffmpeg", "-y", "-i", path, "-vn", "-ac", "1",
          "-ar", str(sample_rate), "-f", "wav", str(tmp)],
-        capture_output=True,
+        capture_output=True, text=True, errors="replace", creationflags=flags,
     )
-    return str(tmp) if tmp.exists() else path
+    if res.returncode != 0 or not tmp.exists():
+        msg = (res.stderr or res.stdout or "").strip().splitlines()
+        detail = msg[-1] if msg else "ffmpeg не смог извлечь аудио"
+        raise RuntimeError("Не удалось извлечь аудио из видео: " + detail)
+    return str(tmp)
 
 
 def iter_frames(path: str, fps: float = 0.5):

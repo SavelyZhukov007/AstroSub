@@ -11,6 +11,7 @@ const state = {
   drawerBuf: "", summaryBuf: "", askBuf: "", meshOn: false,
   chat: [], chatBotBuf: "", recBuf: "",
   fidAnalysisBuf: "", lastFaceUid: null,
+  voiceLiveText: "", voiceLiveId: "", voiceSeq: 0,
 };
 
 ready().then(async (api) => {
@@ -103,6 +104,7 @@ function bindUI() {
     state.duration = v.duration;
     $("#tcDur").textContent = fmt(v.duration);
     $("#fsDur").textContent = fmt(v.duration);
+    updateVideoAspect();
   });
   $("#seek").addEventListener("click", (e) => {
     const r = e.currentTarget.getBoundingClientRect();
@@ -122,6 +124,7 @@ function bindUI() {
   document.addEventListener("mouseup", onSelection);
   $("#explainPop").addEventListener("mousedown", (e) => { e.preventDefault(); doExplain(); });
   $("#drawerClose").addEventListener("click", () => $("#drawer").classList.remove("open"));
+  $("#toastClose").addEventListener("click", () => $("#toast").classList.add("hidden"));
 
   $("#searchInput").addEventListener("input", debounce(doSearch, 180));
   $("#askInput").addEventListener("keydown", (e) => {
@@ -252,6 +255,14 @@ async function loadMedia(path, title, duration, id) {
   status("Загружено: " + title);
 }
 
+function updateVideoAspect() {
+  const v = $("#video");
+  const st = $("#stage");
+  const ar = (v.videoWidth || 16) / Math.max(1, v.videoHeight || 9);
+  st.dataset.aspect = ar < 0.8 ? "portrait" : (ar > 2.2 ? "ultrawide" : (ar > 1.25 ? "wide" : "square"));
+  resizeMesh();
+}
+
 const PROC_OPTS = [
   ["subtitles", "captions", "Субтитры", "Распознавание речи с таймкодами", true],
   ["speakers", "faces", "Спикеры", "Идентификация лиц и привязка к репликам", true],
@@ -291,11 +302,12 @@ function markStep(label) {
 /* ----------------------------------------------------- event bus */
 function bindBus() {
   on("stage", (d) => status(d.text));
-  on("error", (d) => { status("Ошибка: " + d.message); showProc(false); });
+  on("error", (d) => showError(d));
 
   // единый конвейер
   on("process:start", (d) => { showProc(true); setSteps(d.steps || []); setProc(0, "Подготовка…", 0); progress(0); status("Обработка…"); });
-  on("process:progress", (d) => { setProc(d.progress, d.label, d.eta); markStep(d.label); progress(d.progress); });
+  on("process:progress", (d) => { $("#procError").classList.add("hidden"); setProc(d.progress, d.label, d.eta); markStep(d.label); progress(d.progress); });
+  on("process:warning", (d) => showWarning(d.message));
   on("process:done", (d) => {
     showProc(false); progressDone(); status("Готово");
     state.segments = d.segments || []; state.duration = d.duration || state.duration;
@@ -337,8 +349,10 @@ function bindBus() {
   on("chat:done", () => { state.chat.push({ role: "assistant", content: state.chatBotBuf }); status("Готов"); });
   on("chat:error", (d) => updateLastBot(`<p class="muted">${d.message}.</p>`));
 
-  on("voice:start", () => status("Расшифровка голосового..."));
-  on("voice:done", (d) => onVoiceText(d.text));
+  on("voice:start", () => status("Расшифровка голоса..."));
+  on("voice:partial", (d) => { if (finishVoiceRequest(d)) updateVoiceDraft(d.text || ""); });
+  on("voice:done", (d) => { if (finishVoiceRequest(d)) onVoiceText(d.text || state.voiceLiveText); });
+  on("voice:error", (d) => { if (finishVoiceRequest(d)) { updateVoiceDraft(""); showWarning(d.message || "Голос не удалось расшифровать"); } });
 
   // faceid
   on("faceid:start", () => { fidProg(0); $("#fidResult").innerHTML = ""; });
@@ -398,6 +412,26 @@ function setProc(frac, label, eta) {
   $("#procFill").style.width = pct + "%";
   if (label) $("#procLabel").textContent = label;
   $("#procEta").textContent = eta ? "осталось ~" + fmt(eta) : "";
+}
+
+function showError(d = {}) {
+  const msg = humanError(d.message || d.raw || "Неизвестная ошибка");
+  status("Ошибка: " + msg);
+  $("#toastText").textContent = msg;
+  $("#toast").classList.remove("hidden");
+  if (!$("#proc").classList.contains("hidden")) {
+    $("#procLabel").textContent = "Обработка остановлена";
+    $("#procError").textContent = msg;
+    $("#procError").classList.remove("hidden");
+  }
+  progressDone();
+}
+
+function showWarning(message) {
+  const msg = humanError(message || "");
+  status(msg);
+  $("#toastText").textContent = msg;
+  $("#toast").classList.remove("hidden");
 }
 
 function handleInstallDone(d) {
@@ -584,22 +618,33 @@ function addMsg(role, inner) {
 
 /* голосовое сообщение */
 let mediaRec = null, recChunks = [], audioCtx = null, analyser = null, rafId = 0, recStream = null;
+let voiceTimer = 0, voiceWatchdog = 0, voiceBusy = false, voiceFinalQueued = false, voiceInFlightSeq = 0;
 async function toggleRec() {
   if (mediaRec && mediaRec.state === "recording") { stopRec(); return; }
   try {
     recStream = await navigator.mediaDevices.getUserMedia({ audio: true });
   } catch (e) { status("Нет доступа к микрофону"); return; }
   recChunks = [];
+  state.voiceLiveText = "";
+  state.voiceLiveId = "voice-" + Date.now();
+  state.voiceSeq = 0;
+  voiceBusy = false;
+  voiceFinalQueued = false;
+  voiceInFlightSeq = 0;
+  clearTimeout(voiceWatchdog);
+  addVoiceDraft();
   mediaRec = new MediaRecorder(recStream);
   mediaRec.ondataavailable = (e) => { if (e.data.size) recChunks.push(e.data); };
-  mediaRec.onstop = onRecStop;
-  mediaRec.start();
+  mediaRec.onstop = () => flushVoice(true);
+  mediaRec.start(1000);
+  voiceTimer = setInterval(() => flushVoice(false), 2600);
   $("#chatMic").classList.add("rec");
   $("#micViz").classList.remove("hidden");
   startViz(recStream);
 }
 function stopRec() {
   if (mediaRec) mediaRec.stop();
+  clearInterval(voiceTimer);
   $("#chatMic").classList.remove("rec");
   $("#micViz").classList.add("hidden");
   cancelAnimationFrame(rafId);
@@ -620,14 +665,78 @@ function startViz(stream) {
   };
   tick();
 }
-function onRecStop() {
+function flushVoice(final = false) {
+  if (!recChunks.length) return;
+  if (voiceBusy) {
+    if (final) voiceFinalQueued = true;
+    return;
+  }
+  voiceBusy = true;
   const blob = new Blob(recChunks, { type: "audio/webm" });
   const fr = new FileReader();
-  fr.onload = () => { state.recBuf = fr.result; API.transcribe_voice(fr.result); };
+  const seq = ++state.voiceSeq;
+  fr.onload = () => {
+    state.recBuf = fr.result;
+    try {
+      voiceInFlightSeq = seq;
+      clearTimeout(voiceWatchdog);
+      voiceWatchdog = setTimeout(() => {
+        if (voiceInFlightSeq !== seq) return;
+        voiceBusy = false;
+        showWarning("Расшифровка голоса отвечает слишком долго. Следующий фрагмент будет отправлен заново.");
+        if (voiceFinalQueued) { voiceFinalQueued = false; flushVoice(true); }
+      }, 45000);
+      let req = null;
+      if (API.transcribe_voice_live) req = API.transcribe_voice_live(fr.result, seq, final);
+      else if (API.transcribe_voice) {
+        if (final) req = API.transcribe_voice(fr.result);
+        else finishVoiceRequest({ seq });
+      }
+      else if (!API.transcribe_voice) {
+        finishVoiceRequest({ seq });
+        showWarning("Расшифровка голоса доступна только в desktop-версии Submind.");
+      }
+      if (req && req.catch) req.catch((err) => {
+        if (finishVoiceRequest({ seq })) showWarning(err.message || "Голос не удалось отправить на распознавание");
+      });
+    } catch (err) {
+      if (finishVoiceRequest({ seq })) showWarning(err.message || "Голос не удалось отправить на распознавание");
+    }
+  };
   fr.readAsDataURL(blob);
+}
+
+function finishVoiceRequest(d = {}) {
+  const seq = Number(d.seq || 0);
+  if (seq && voiceInFlightSeq && seq < voiceInFlightSeq) return false;
+  clearTimeout(voiceWatchdog);
+  voiceBusy = false;
+  if (voiceFinalQueued) {
+    voiceFinalQueued = false;
+    setTimeout(() => flushVoice(true), 0);
+  }
+  return true;
+}
+
+function addVoiceDraft() {
+  const hello = $(".chat-hello"); if (hello) hello.remove();
+  const d = document.createElement("div");
+  d.className = "msg user voice-live";
+  d.dataset.voice = state.voiceLiveId;
+  d.innerHTML = `<div class="bubble voice">${ICONS.mic}<div class="voice-wave live"><i></i><i></i><i></i><i></i><i></i></div><span class="voice-live-text">Слушаю...</span></div>`;
+  $("#chatBody").appendChild(d);
+  $("#chatBody").scrollTop = $("#chatBody").scrollHeight;
+}
+
+function updateVoiceDraft(text) {
+  if (text) state.voiceLiveText = text;
+  const el = $(`[data-voice="${state.voiceLiveId}"] .voice-live-text`);
+  if (el) el.textContent = state.voiceLiveText || "Слушаю...";
 }
 function onVoiceText(text) {
   if (!text) { status("Пустое голосовое"); return; }
+  const draft = $(`[data-voice="${state.voiceLiveId}"]`);
+  if (draft) draft.remove();
   // телеграм-стиль: пузырь голосового + расшифровка по кнопке
   const wave = Array.from({ length: 22 }, () => `<i style="height:${4 + Math.random() * 16 | 0}px"></i>`).join("");
   const id = "vt" + Date.now();
@@ -948,6 +1057,15 @@ function isInView(el) { const r = el.getBoundingClientRect(), p = el.parentEleme
 function escapeHtml(s) { return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
 function escapeAttr(s) { return escapeHtml(s).replace(/"/g, "&quot;"); }
 function compactError(s) { return String(s || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 180) || "нет ответа"; }
+function humanError(s) {
+  const text = compactError(s);
+  const low = text.toLowerCase();
+  if (low.includes("cublas") || low.includes("cudnn") || low.includes("cuda")) {
+    return "CUDA-библиотеки не загрузились. Распознавание будет повторено на CPU; для GPU нужно установить совместимые CUDA/cuBLAS/cuDNN.";
+  }
+  if (low.includes("ffmpeg")) return "Не удалось прочитать аудио/видео через ffmpeg. Проверьте файл и установку ffmpeg.";
+  return text;
+}
 function toFileUri(p) { if (!p) return ""; if (SERVER_BASE) return SERVER_BASE + "/local?p=" + encodeURIComponent(p); let s = String(p).replace(/\\/g, "/"); if (!s.startsWith("/")) s = "/" + s; return "file://" + encodeURI(s); }
 function debounce(fn, ms) { let id; return (...a) => { clearTimeout(id); id = setTimeout(() => fn(...a), ms); }; }
 function humanBytes(n) {

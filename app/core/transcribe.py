@@ -1,12 +1,21 @@
 # -*- coding: utf-8 -*-
-"""Генерация субтитров через faster-whisper (word-level таймкоды)."""
+"""Speech-to-text through faster-whisper with safe CUDA -> CPU fallback."""
 from __future__ import annotations
 
 from typing import Callable, Optional
 
 
+def _cuda_runtime_error(exc: Exception) -> bool:
+    text = str(exc).lower()
+    needles = (
+        "cublas", "cudnn", "cuda", "cublas64", "cudnn64",
+        "cannot be loaded", "is not found", "cuda driver",
+    )
+    return any(n in text for n in needles)
+
+
 class Transcriber:
-    """Ленивая обёртка над faster-whisper. Модель грузится при первом вызове."""
+    """Lazy faster-whisper wrapper. Keeps the UI alive when CUDA is broken."""
 
     def __init__(self, model_size="small", device="auto", compute_type="auto"):
         self.model_size = model_size
@@ -31,15 +40,23 @@ class Transcriber:
         if self._model is not None:
             return
         from faster_whisper import WhisperModel
+
         device, compute = self._resolve()
         try:
             self._model = WhisperModel(self.model_size, device=device, compute_type=compute)
-        except Exception:
-            if device != "cuda":
+            self.device = device
+            self.compute_type = compute
+        except Exception as exc:
+            if device != "cuda" or not _cuda_runtime_error(exc):
                 raise
-            self.device = "cpu"
-            self.compute_type = "int8"
-            self._model = WhisperModel(self.model_size, device="cpu", compute_type="int8")
+            self._fallback_cpu()
+
+    def _fallback_cpu(self):
+        from faster_whisper import WhisperModel
+
+        self.device = "cpu"
+        self.compute_type = "int8"
+        self._model = WhisperModel(self.model_size, device="cpu", compute_type="int8")
 
     def transcribe(
         self,
@@ -49,7 +66,28 @@ class Transcriber:
         on_progress: Optional[Callable[[float, str], None]] = None,
         total_duration: float = 0.0,
     ) -> dict:
-        """Возвращает {language, duration, segments:[{id,start,end,text,words:[...] }]}"""
+        try:
+            return self._transcribe_once(audio_path, language, translate, on_progress, total_duration)
+        except Exception as exc:
+            if self.device == "cuda" or _cuda_runtime_error(exc):
+                if on_progress:
+                    on_progress(0.0, "CUDA недоступна, переключаю ASR на CPU")
+                try:
+                    self._model = None
+                    self._fallback_cpu()
+                    return self._transcribe_once(audio_path, language, translate, on_progress, total_duration)
+                except Exception as retry_exc:
+                    raise RuntimeError("Whisper не смог распознать аудио даже на CPU: " + str(retry_exc)) from retry_exc
+            raise RuntimeError("Whisper не смог распознать аудио: " + str(exc)) from exc
+
+    def _transcribe_once(
+        self,
+        audio_path: str,
+        language: Optional[str],
+        translate: bool,
+        on_progress: Optional[Callable[[float, str], None]],
+        total_duration: float,
+    ) -> dict:
         self.load()
         task = "translate" if translate else "transcribe"
         lang = None if (not language or language == "auto") else language
@@ -96,7 +134,19 @@ class Transcriber:
         }
 
     def quick(self, audio_path: str, language: Optional[str] = None) -> str:
-        """Быстрая расшифровка короткого аудио (голосовое сообщение) в текст."""
+        try:
+            return self._quick_once(audio_path, language)
+        except Exception as exc:
+            if self.device == "cuda" or _cuda_runtime_error(exc):
+                try:
+                    self._model = None
+                    self._fallback_cpu()
+                    return self._quick_once(audio_path, language)
+                except Exception as retry_exc:
+                    raise RuntimeError("Голос не удалось расшифровать даже на CPU: " + str(retry_exc)) from retry_exc
+            raise RuntimeError("Голос не удалось расшифровать: " + str(exc)) from exc
+
+    def _quick_once(self, audio_path: str, language: Optional[str] = None) -> str:
         self.load()
         lang = None if (not language or language == "auto") else language
         segments_iter, _ = self._model.transcribe(
