@@ -6,6 +6,8 @@ API-мост: методы класса доступны из JS как window.p
 from __future__ import annotations
 
 import json
+import re
+import sys
 import threading
 import time
 import traceback
@@ -15,8 +17,8 @@ from pathlib import Path
 import webview
 
 from . import config
-from .core import (device, diarize, export, facedb, faceid, faces, install,
-                   lan, llm, media, project, server, transcribe)
+from .core import (device, diarize, emotion, export, facedb, faceid, faces,
+                   install, lan, llm, media, project, server, transcribe)
 
 
 def _esc(s: str) -> str:
@@ -34,6 +36,10 @@ def friendly_error(exc) -> str:
     if "ffmpeg" in low or "failed to open" in low:
         return "Не удалось прочитать аудио/видео через ffmpeg. Проверьте файл или установку ffmpeg."
     if "no module named" in low:
+        match = re.search(r"no module named ['\"]([^'\"]+)", text, re.IGNORECASE)
+        missing = match.group(1).split(".", 1)[0] if match else ""
+        if missing and missing in getattr(sys, "stdlib_module_names", set()):
+            return "Сборка Submind неполная: отсутствует стандартный модуль Python " + missing
         return "Не установлен нужный Python-пакет: " + text
     if "ollama" in low:
         return "Ollama/Qwen не ответил: " + text
@@ -81,6 +87,7 @@ class Api:
         self._transcriber = None
         self._faces = None
         self._faceid = None
+        self._emotion = None
         self._llm = None
         self._server = server.MediaServer()
         self._lan = lan.LanServer(
@@ -163,6 +170,7 @@ class Api:
         self._transcriber = None
         self._faces = None
         self._faceid = None
+        self._emotion = None
         self._llm = None
         return self.settings
 
@@ -771,6 +779,24 @@ class Api:
             self._emit("faceid:analysis_done", {"uid": uid})
         except Exception as e:  # noqa: BLE001
             self._emit("faceid:analysis_error", {"message": "Qwen не ответил: " + str(e)})
+
+    # ------------------------------------------------------------------ #
+    #  EmotionAI
+    # ------------------------------------------------------------------ #
+    def emotion_status(self):
+        return emotion.dependency_status()
+
+    def emotion_analyze_frame(self, data_url, device_name="CPU", threshold=0.55):
+        try:
+            if self._emotion is None:
+                self._emotion = emotion.EmotionEngine()
+            return self._emotion.analyze_data_url(
+                data_url, device=str(device_name or "CPU"), threshold=float(threshold or 0.55)
+            )
+        except ModuleNotFoundError as exc:
+            return {"ok": False, "error": f"Не установлен компонент EmotionAI: {exc.name}"}
+        except Exception as exc:  # noqa: BLE001
+            return {"ok": False, "error": "EmotionAI не обработал кадр: " + str(exc)}
 
     # ------------------------------------------------------------------ #
     #  Галерея известных лиц

@@ -10,14 +10,45 @@
 """
 from __future__ import annotations
 
+import ctypes
 import json
 import multiprocessing
+import os
 import platform
 import shutil
 import subprocess
 from typing import Optional
 
 from .. import config
+
+
+def _loadable_library(names) -> bool:
+    loader = ctypes.WinDLL if os.name == "nt" else ctypes.CDLL
+    for name in names:
+        try:
+            loader(name)
+            return True
+        except OSError:
+            continue
+    return False
+
+
+def _ctranslate2_cuda_ready() -> bool:
+    """CTranslate2 needs its own cuBLAS/cuDNN runtime, not only an ONNX CUDA provider."""
+    try:
+        import ctranslate2
+        if ctranslate2.get_cuda_device_count() < 1:
+            return False
+    except Exception:
+        return False
+
+    if os.name == "nt":
+        has_blas = _loadable_library(("cublas64_12.dll", "cublas64_11.dll"))
+        has_dnn = _loadable_library(("cudnn64_9.dll", "cudnn64_8.dll"))
+    else:
+        has_blas = _loadable_library(("libcublas.so.12", "libcublas.so.11"))
+        has_dnn = _loadable_library(("libcudnn.so.9", "libcudnn.so.8"))
+    return has_blas and has_dnn
 
 
 def _probe() -> dict:
@@ -29,6 +60,8 @@ def _probe() -> dict:
         "cpu_count": multiprocessing.cpu_count(),
         "has_cuda": False,
         "cuda_ready": False,
+        "asr_cuda_ready": False,
+        "onnx_cuda_ready": False,
         "gpu_available": False,
         "gpus": [],
         "vram_gb": 0.0,
@@ -86,11 +119,17 @@ def _probe() -> dict:
         if any("CUDA" in p for p in info["onnx_providers"]):
             info["has_cuda"] = True
             info["cuda_ready"] = True
+            info["onnx_cuda_ready"] = True
             info["gpu_available"] = True
             if not info["gpus"]:
                 info["gpus"].append({"name": "CUDA GPU", "vram_gb": 0.0})
     except Exception:
         pass
+    info["asr_cuda_ready"] = _ctranslate2_cuda_ready()
+    if info["asr_cuda_ready"]:
+        info["has_cuda"] = True
+        info["cuda_ready"] = True
+        info["gpu_available"] = True
     return info
 
 
@@ -98,7 +137,9 @@ def detect(force: bool = False) -> dict:
     """Возвращает данные об устройстве, кешируя их в device.json."""
     if not force and config.DEVICE_PATH.exists():
         try:
-            return json.loads(config.DEVICE_PATH.read_text(encoding="utf-8"))
+            cached = json.loads(config.DEVICE_PATH.read_text(encoding="utf-8"))
+            if "asr_cuda_ready" in cached and "onnx_cuda_ready" in cached:
+                return cached
         except Exception:
             pass
     info = _probe()
@@ -116,14 +157,15 @@ def policy(settings: Optional[dict] = None) -> dict:
     dev = detect()
     pref = settings.get("gpu_policy", "auto")
 
-    cuda_ready = bool(dev.get("cuda_ready") or dev.get("has_cuda"))
+    asr_cuda_ready = bool(dev.get("asr_cuda_ready"))
+    light_cuda_ready = bool(dev.get("onnx_cuda_ready") or asr_cuda_ready)
 
     if pref == "cpu":
         heavy = "cpu"
     elif pref == "gpu":
-        heavy = "cuda" if cuda_ready else "cpu"
+        heavy = "cuda" if asr_cuda_ready else "cpu"
     else:  # auto
-        heavy = "cuda" if cuda_ready else "cpu"
+        heavy = "cuda" if asr_cuda_ready else "cpu"
 
     workers = int(settings.get("max_cpu_workers") or 0)
     if workers <= 0:
@@ -131,9 +173,11 @@ def policy(settings: Optional[dict] = None) -> dict:
 
     return {
         "heavy_device": heavy,        # ASR + LLM
-        "light_device": heavy if heavy == "cuda" else "cpu",
+        "light_device": "cuda" if light_cuda_ready and pref != "cpu" else "cpu",
         "cpu_workers": workers,
-        "has_cuda": cuda_ready,
+        "has_cuda": bool(dev.get("has_cuda")),
+        "asr_cuda_ready": asr_cuda_ready,
+        "onnx_cuda_ready": bool(dev.get("onnx_cuda_ready")),
         "gpu_available": dev.get("gpu_available", False),
         "gpus": dev.get("gpus", []),
     }
@@ -149,6 +193,8 @@ def summary() -> dict:
         "cpu_count": dev.get("cpu_count"),
         "has_cuda": dev.get("has_cuda"),
         "cuda_ready": dev.get("cuda_ready", dev.get("has_cuda")),
+        "asr_cuda_ready": dev.get("asr_cuda_ready", False),
+        "onnx_cuda_ready": dev.get("onnx_cuda_ready", False),
         "gpu_available": dev.get("gpu_available", dev.get("has_cuda")),
         "gpu_setup_needed": bool(dev.get("gpu_available") and not dev.get("has_cuda")),
         "gpu": gpu_name,

@@ -91,11 +91,13 @@ class Transcriber:
         self.load()
         task = "translate" if translate else "transcribe"
         lang = None if (not language or language == "auto") else language
+        multilingual = lang is None
 
         segments_iter, info = self._model.transcribe(
             audio_path,
             language=lang,
             task=task,
+            multilingual=multilingual,
             word_timestamps=True,
             vad_filter=True,
             vad_parameters=dict(min_silence_duration_ms=400),
@@ -128,7 +130,8 @@ class Transcriber:
             on_progress(1.0, "Готово")
 
         return {
-            "language": getattr(info, "language", lang or "unknown"),
+            "language": "multilingual" if multilingual else getattr(info, "language", lang or "unknown"),
+            "detected_language": getattr(info, "language", lang or "unknown"),
             "duration": dur,
             "segments": out_segments,
         }
@@ -150,5 +153,6 @@ class Transcriber:
         self.load()
         lang = None if (not language or language == "auto") else language
         segments_iter, _ = self._model.transcribe(
-            audio_path, language=lang, vad_filter=True, beam_size=5)
+            audio_path, language=lang, multilingual=lang is None,
+            vad_filter=True, beam_size=5)
         return " ".join(s.text.strip() for s in segments_iter).strip()

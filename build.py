@@ -35,6 +35,7 @@ APP_NAME = "Submind"
 ENTRY = ROOT / "app" / "main.py"
 REQUIREMENTS = ROOT / "requirements.txt"
 WEB_DIR = ROOT / "web"
+MODELS_DIR = ROOT / "models"
 BUILD_META_DIR = ROOT / ".build-meta"
 BUILD_INFO = BUILD_META_DIR / "build-info.json"
 
@@ -192,6 +193,8 @@ def cmd_build(args):
         "--add-data", f"{WEB_DIR}{sep}web",
         "--add-data", f"{BUILD_INFO}{sep}.",
     ]
+    if MODELS_DIR.exists():
+        cmd += ["--add-data", f"{MODELS_DIR}{sep}models"]
     if not args.onedir:
         cmd.append("--onefile")
     if icon.exists():
@@ -200,10 +203,11 @@ def cmd_build(args):
     # Тяжёлые ML-зависимости ставятся мастером первого запуска в managed runtime
     # (%APPDATA%\Submind\runtime\.venv или платформенный аналог).
     # Так новый exe стартует чистым, а обновления не тащат хвосты старой сборки.
-    for mod in ("faster_whisper", "ctranslate2", "onnxruntime", "cv2", "numpy", "sklearn", "insightface", "mediapipe", "torch"):
+    for mod in ("faster_whisper", "ctranslate2", "onnxruntime", "cv2", "numpy", "sklearn", "insightface", "mediapipe", "openvino", "torch"):
         cmd += ["--exclude-module", mod]
     cmd += ["--hidden-import", "pip._internal.cli.main"]
     cmd += ["--hidden-import", "qrcode.image.svg"]
+    cmd += ["--hidden-import", "fileinput"]
 
     cmd.append(str(ENTRY))
     run(cmd)

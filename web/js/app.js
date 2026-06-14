@@ -10,8 +10,8 @@ const state = {
   segments: [], duration: 0, videoPath: null, projectId: null,
   drawerBuf: "", summaryBuf: "", askBuf: "", meshOn: false,
   chat: [], chatBotBuf: "", recBuf: "",
-  fidAnalysisBuf: "", lastFaceUid: null,
   voiceLiveText: "", voiceLiveId: "", voiceSeq: 0,
+  activeSegmentIndex: -1,
 };
 
 ready().then(async (api) => {
@@ -58,7 +58,7 @@ const FEATURES = [
   ["mic", "Локальное ASR", "faster-whisper распознаёт речь офлайн, с таймкодами по словам."],
   ["spark", "Кнопка «Подробнее»", "Выделите слова — Qwen объяснит фрагмент."],
   ["brain", "Умный конспект", "Структурированный конспект по всей расшифровке."],
-  ["faceid", "FaceID", "Запись лица, разбор геометрии, пол/возраст, вывод Qwen."],
+  ["faceid", "EmotionAI", "Локальное распознавание лиц и эмоций в реальном времени через OpenVINO."],
   ["chat", "Чат с Qwen", "Диалог с моделью и обсуждение обработанного видео, голосовые."],
   ["faces", "Спикеры", "ArcFace + кластеризация: один человек = один ID, имена сохраняются."],
   ["chip", "GPU/CPU", "Тяжёлые задачи — на видеокарту, остальное параллельно на CPU."],
@@ -95,11 +95,12 @@ function bindUI() {
   // плеер
   const v = $("#video");
   $("#btnPlay").addEventListener("click", () => (v.paused ? v.play() : v.pause()));
-  v.addEventListener("play", () => ($("#btnPlay").innerHTML = ICONS.pause));
-  v.addEventListener("pause", () => ($("#btnPlay").innerHTML = ICONS.play));
-  v.addEventListener("play", () => ($("#fsPlay").innerHTML = ICONS.pause));
-  v.addEventListener("pause", () => ($("#fsPlay").innerHTML = ICONS.play));
+  v.addEventListener("play", () => { $("#btnPlay").innerHTML = ICONS.pause; $("#fsPlay").innerHTML = ICONS.pause; startPlaybackTicker(); });
+  v.addEventListener("pause", () => { $("#btnPlay").innerHTML = ICONS.play; $("#fsPlay").innerHTML = ICONS.play; stopPlaybackTicker(); onTime(); });
+  v.addEventListener("ended", () => { stopPlaybackTicker(); onTime(); });
   v.addEventListener("timeupdate", onTime);
+  v.addEventListener("seeking", onTime);
+  v.addEventListener("seeked", onTime);
   v.addEventListener("loadedmetadata", () => {
     state.duration = v.duration;
     $("#tcDur").textContent = fmt(v.duration);
@@ -156,7 +157,7 @@ function bindUI() {
   $("#mobileSend").addEventListener("click", sendMobileVideo);
 
   bindChat();
-  bindFaceId();
+  bindEmotion();
   bindLab();
 }
 
@@ -166,7 +167,8 @@ function showView(view) {
   Object.entries(map).forEach(([k, sel]) => $(sel).classList.toggle("hidden", k !== view));
   if (view === "welcome") refreshRecent();
   if (view === "chat") populateChatAttach();
-  if (view === "faceid") refreshFidList();
+  if (view === "faceid") initEmotionView();
+  else if (emotionStream) stopEmotionCamera();
   if (view === "lab") { refreshKnown(); populateCompare(); }
   if (view === "devices") refreshDevices();
 }
@@ -353,15 +355,6 @@ function bindBus() {
   on("voice:partial", (d) => { if (finishVoiceRequest(d)) updateVoiceDraft(d.text || ""); });
   on("voice:done", (d) => { if (finishVoiceRequest(d)) onVoiceText(d.text || state.voiceLiveText); });
   on("voice:error", (d) => { if (finishVoiceRequest(d)) { updateVoiceDraft(""); showWarning(d.message || "Голос не удалось расшифровать"); } });
-
-  // faceid
-  on("faceid:start", () => { fidProg(0); $("#fidResult").innerHTML = ""; });
-  on("faceid:progress", (d) => { fidProg(d.progress); $("#fidPrompt").textContent = d.text; });
-  on("faceid:done", (d) => onFaceEnrolled(d));
-  on("faceid:analysis_start", () => { state.fidAnalysisBuf = ""; $("#fidAnalysis") && ($("#fidAnalysis").innerHTML = `<span class="spinner"></span>`); });
-  on("faceid:analysis_token", (d) => { state.fidAnalysisBuf += d.token; const el = $("#fidAnalysis"); if (el) el.innerHTML = renderMarkdown(state.fidAnalysisBuf); });
-  on("faceid:analysis_done", () => status("Разбор готов"));
-  on("faceid:analysis_error", (d) => { const el = $("#fidAnalysis"); if (el) el.innerHTML = `<p class="muted">${d.message}.</p>`; status(d.message); });
 
   // модели / установка
   on("pull:start", () => { $("#pullProgress").classList.remove("hidden"); $("#pullStatus").textContent = "Загрузка…"; });

@@ -13,7 +13,7 @@
       <span class="logo" id="railLogo"></span>
       <div class="rail-btn active" data-view="editor" title="Рабочая область"><span data-icon="captions"></span></div>
       <div class="rail-btn" data-view="chat" title="Чат с Qwen"><span data-icon="chat"></span></div>
-      <div class="rail-btn" data-view="faceid" title="FaceID"><span data-icon="faceid"></span></div>
+      <div class="rail-btn" data-view="faceid" title="EmotionAI"><span data-icon="faceid"></span></div>
       <div class="rail-btn" data-view="lab" title="Сервисы"><span data-icon="spark"></span></div>
       <div class="rail-btn" data-view="devices" title="Добавить телефон"><span data-icon="phone"></span></div>
       <div class="rail-btn" data-view="welcome" title="Проекты"><span data-icon="layers"></span></div>
@@ -42,7 +42,7 @@
           <div class="hero">Локальные субтитры<br>и <em>умные конспекты</em> к видео.</div>
           <p class="lead">Распознавание речи (faster-whisper), идентификация спикеров через
             ArcFace-эмбеддинги с кластеризацией, лицевая сетка на 468 точек, чат с локальной
-            моделью Qwen и сервис FaceID. Всё работает офлайн.</p>
+            моделью Qwen и локальным распознаванием эмоций EmotionAI. Всё работает офлайн.</p>
           <button class="btn primary" id="btnOpen2"><span data-icon="open"></span>Открыть видео или аудио</button>
           <div class="feature-grid" id="featureGrid"></div>
           <div class="recent">
@@ -173,32 +173,58 @@
         </div>
       </div>
 
-      <!-- ====================== FACEID ====================== -->
-      <div id="viewFaceid" class="view faceid scroll hidden">
-        <div class="fid-wrap">
-          <h2 class="sect"><span data-icon="faceid"></span> FaceID — разбор лица</h2>
-          <p class="muted">Запишите короткое видео своего лица, следуя подсказкам. Кадры обрабатываются
-            локально (InsightFace): эмбеддинг, пол, возраст и опорные точки сводятся в JSON, после чего
-            Qwen делает разбор. Нужен доступ к камере.</p>
+      <!-- ====================== EMOTIONAI ====================== -->
+      <div id="viewFaceid" class="view emotion-view scroll hidden">
+        <div class="emotion-wrap">
+          <header class="emotion-head">
+            <div>
+              <h2 class="sect"><span data-icon="faceid"></span> EmotionAI</h2>
+              <p class="muted">Локальное распознавание лиц и эмоций через OpenVINO. Кадры камеры не покидают компьютер.</p>
+            </div>
+            <div class="emotion-state" id="emotionState"><span></span><b>ожидание</b></div>
+          </header>
 
-          <div class="fid-stage">
-            <video id="fidCam" autoplay muted playsinline></video>
-            <canvas id="fidOverlay"></canvas>
-            <div class="fid-prompt" id="fidPrompt">Нажмите «Записать»</div>
-            <div class="fid-ring hidden" id="fidRing"></div>
+          <div class="emotion-layout">
+            <section class="emotion-camera-panel">
+              <div class="emotion-stage" id="emotionStage">
+                <video id="emotionCam" autoplay muted playsinline></video>
+                <canvas id="emotionOverlay"></canvas>
+                <div class="emotion-empty" id="emotionEmpty">
+                  <span data-icon="cam"></span>
+                  <b>Камера выключена</b>
+                  <span>Включите её, чтобы начать локальный анализ</span>
+                </div>
+              </div>
+              <div class="emotion-actions">
+                <button class="btn primary" id="emotionStart"><span data-icon="cam"></span>Включить камеру</button>
+                <button class="btn" id="emotionPause" disabled><span data-icon="pause"></span>Приостановить</button>
+                <button class="btn ghost" id="emotionStop" disabled><span data-icon="close"></span>Выключить</button>
+              </div>
+              <p class="emotion-message" id="emotionMessage"></p>
+            </section>
+
+            <aside class="emotion-side">
+              <div class="emotion-metrics">
+                <div><span>устройство</span><b id="emotionDeviceStat">—</b></div>
+                <div><span>скорость</span><b id="emotionFps">0 fps</b></div>
+                <div><span>лица</span><b id="emotionFaces">0</b></div>
+                <div><span>эмоция</span><b id="emotionDominant">—</b></div>
+              </div>
+
+              <div class="emotion-settings">
+                <label>Камера<select id="emotionCamera"><option value="">по умолчанию</option></select></label>
+                <label>OpenVINO<select id="emotionDevice"><option value="CPU">CPU</option></select></label>
+                <label>Порог лица <output id="emotionThresholdValue">55%</output>
+                  <input id="emotionThreshold" type="range" min="30" max="90" value="55" />
+                </label>
+              </div>
+
+              <div class="emotion-detections">
+                <h3>Сейчас в кадре</h3>
+                <div id="emotionList"><p class="muted">Данные появятся после запуска камеры.</p></div>
+              </div>
+            </aside>
           </div>
-
-          <div class="fid-controls">
-            <input id="fidLabel" placeholder="Имя профиля (необязательно)" />
-            <button class="btn" id="fidStartCam"><span data-icon="cam"></span>Включить камеру</button>
-            <button class="btn primary" id="fidRecord" disabled><span data-icon="scan"></span>Записать</button>
-          </div>
-
-          <div class="fid-progress hidden" id="fidProgress"><div id="fidProgFill"></div></div>
-          <div id="fidResult"></div>
-
-          <h3 class="sect" style="margin-top:24px;">Сохранённые профили</h3>
-          <div id="fidList" class="fid-list"><p class="muted">Пока нет профилей.</p></div>
         </div>
       </div>
 

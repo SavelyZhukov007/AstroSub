@@ -58,6 +58,12 @@ FEATURES = {
         "packages": ["opencv-python>=4.9"],
         "modules": ["cv2"],
     },
+    "emotion": {
+        "title": "EmotionAI",
+        "desc": "Распознавание лиц и эмоций в реальном времени (OpenVINO).",
+        "packages": ["openvino>=2024,<2027"],
+        "modules": ["openvino"],
+    },
     "gpu": {
         "title": "Ускорение на видеокарте",
         "desc": "CUDA-сборка onnxruntime, если доступна NVIDIA/CUDA.",
@@ -373,7 +379,7 @@ def health_check(keys: Optional[Iterable[str]] = None) -> dict:
         for key in keys:
             modules.extend(FEATURES.get(key, {}).get("modules", []))
     else:
-        modules = ["faster_whisper", "cv2", "insightface", "onnxruntime", "mediapipe"]
+        modules = ["faster_whisper", "cv2", "insightface", "onnxruntime", "mediapipe", "openvino"]
     modules = list(dict.fromkeys(modules))
     for name in modules:
         try:

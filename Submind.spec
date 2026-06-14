@@ -1,9 +1,9 @@
 # -*- mode: python ; coding: utf-8 -*-
 from PyInstaller.utils.hooks import collect_all
 
-datas = [('C:\\Project\\SubMind\\web', 'web'), ('C:\\Project\\SubMind\\.build-meta\\build-info.json', '.')]
+datas = [('C:\\Project\\SubMind\\web', 'web'), ('C:\\Project\\SubMind\\.build-meta\\build-info.json', '.'), ('C:\\Project\\SubMind\\models', 'models')]
 binaries = []
-hiddenimports = ['pip._internal.cli.main', 'qrcode.image.svg']
+hiddenimports = ['pip._internal.cli.main', 'qrcode.image.svg', 'fileinput']
 tmp_ret = collect_all('webview')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 tmp_ret = collect_all('pip')
@@ -19,7 +19,7 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=['faster_whisper', 'ctranslate2', 'onnxruntime', 'cv2', 'numpy', 'sklearn', 'insightface', 'mediapipe', 'torch'],
+    excludes=['faster_whisper', 'ctranslate2', 'onnxruntime', 'cv2', 'numpy', 'sklearn', 'insightface', 'mediapipe', 'openvino', 'torch'],
     noarchive=False,
     optimize=0,
 )
