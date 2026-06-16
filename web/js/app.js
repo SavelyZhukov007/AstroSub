@@ -745,6 +745,334 @@ function onVoiceText(text) {
   API.chat_send(state.chat, $("#chatAttach").value || null);
 }
 
+/* ----------------------------------------------------- EmotionAI */
+let emotionStream = null;
+let emotionRaf = 0;
+let emotionPaused = false;
+let emotionAnalyzing = false;
+let emotionAnalyzeBlocked = false;
+let emotionLastAnalysis = 0;
+let emotionFpsCount = 0;
+let emotionFpsAt = 0;
+let emotionOffscreen = null;
+let emotionLastFaces = [];
+let emotionLastFrameSize = { width: 0, height: 0 };
+const EMOTION_ANALYSIS_INTERVAL = 420;
+
+function bindEmotion() {
+  const start = $("#emotionStart");
+  if (!start) return;
+  start.addEventListener("click", startEmotionCamera);
+  $("#emotionPause").addEventListener("click", toggleEmotionPause);
+  $("#emotionStop").addEventListener("click", stopEmotionCamera);
+  $("#emotionCamera").addEventListener("change", () => { if (emotionStream) startEmotionCamera(); });
+  $("#emotionDevice").addEventListener("change", () => { emotionAnalyzeBlocked = false; });
+  $("#emotionThreshold").addEventListener("input", () => {
+    $("#emotionThresholdValue").textContent = `${$("#emotionThreshold").value}%`;
+    emotionAnalyzeBlocked = false;
+  });
+}
+
+async function initEmotionView() {
+  setEmotionState(emotionStream ? (emotionPaused ? "pause" : "live") : "idle");
+  $("#emotionThresholdValue").textContent = `${$("#emotionThreshold").value}%`;
+  await populateEmotionDevices();
+  await populateEmotionCameras();
+}
+
+async function populateEmotionDevices() {
+  const select = $("#emotionDevice");
+  try {
+    const info = API.emotion_status ? await API.emotion_status() : null;
+    const devices = info && info.devices && info.devices.length ? info.devices : ["CPU"];
+    const current = select.value || "CPU";
+    select.innerHTML = devices.map((d) => `<option value="${escapeAttr(d)}">${escapeHtml(d)}</option>`).join("");
+    select.value = devices.includes(current) ? current : devices[0];
+    $("#emotionDeviceStat").textContent = select.value || "CPU";
+    if (info && !info.installed) setEmotionMessage("EmotionAI: OpenVINO не установлен. Камеру можно включить, анализ кадров будет недоступен.", true);
+    else if (info && !info.models_ready) setEmotionMessage("EmotionAI: модели не найдены. Камеру можно включить, анализ кадров будет недоступен.", true);
+    else if (!emotionStream) setEmotionMessage("");
+  } catch (_) {
+    $("#emotionDeviceStat").textContent = select.value || "CPU";
+  }
+}
+
+async function populateEmotionCameras() {
+  const select = $("#emotionCamera");
+  if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return;
+  const current = select.value;
+  try {
+    const devices = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === "videoinput");
+    const opts = [`<option value="">по умолчанию</option>`].concat(
+      devices.map((d, i) => `<option value="${escapeAttr(d.deviceId)}">${escapeHtml(d.label || `Камера ${i + 1}`)}</option>`)
+    );
+    select.innerHTML = opts.join("");
+    if ([...select.options].some((o) => o.value === current)) select.value = current;
+  } catch (_) {}
+}
+
+async function startEmotionCamera() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    setEmotionMessage("Браузер не даёт доступ к камере. Откройте Submind через локальный http://127.0.0.1 или desktop-окно.", true);
+    setEmotionState("error");
+    return;
+  }
+
+  stopEmotionLoop();
+  stopEmotionTracks();
+  emotionPaused = false;
+  emotionAnalyzeBlocked = false;
+  emotionLastFaces = [];
+  emotionLastFrameSize = { width: 0, height: 0 };
+  setEmotionMessage("Запрашиваем доступ к камере…");
+  setEmotionButtons("starting");
+  setEmotionState("idle", "запуск");
+
+  try {
+    const deviceId = $("#emotionCamera").value;
+    const constraints = {
+      audio: false,
+      video: {
+        width: { ideal: 960 },
+        height: { ideal: 540 },
+        facingMode: "user",
+      },
+    };
+    if (deviceId) constraints.video.deviceId = { exact: deviceId };
+    emotionStream = await navigator.mediaDevices.getUserMedia(constraints);
+    const video = $("#emotionCam");
+    video.srcObject = emotionStream;
+    await video.play();
+    $("#emotionEmpty").classList.add("hidden");
+    setEmotionButtons("live");
+    setEmotionState("live");
+    setEmotionMessage("Камера включена. Анализ кадров запускается локально.");
+    await populateEmotionCameras();
+    if (!API.emotion_analyze_frame) {
+      emotionAnalyzeBlocked = true;
+      setEmotionMessage("Анализ EmotionAI доступен в desktop-версии Submind.", true);
+    }
+    startEmotionLoop();
+  } catch (err) {
+    stopEmotionCamera();
+    setEmotionMessage(humanCameraError(err), true);
+    setEmotionState("error");
+  }
+}
+
+function toggleEmotionPause() {
+  if (!emotionStream) return;
+  emotionPaused = !emotionPaused;
+  emotionAnalyzeBlocked = false;
+  setEmotionButtons(emotionPaused ? "paused" : "live");
+  setEmotionState(emotionPaused ? "pause" : "live");
+  setEmotionMessage(emotionPaused ? "Анализ приостановлен, камера остаётся включённой." : "Анализ продолжен.");
+  if (!emotionPaused) startEmotionLoop();
+}
+
+function stopEmotionCamera() {
+  stopEmotionLoop();
+  stopEmotionTracks();
+  emotionPaused = false;
+  emotionAnalyzeBlocked = false;
+  emotionAnalyzing = false;
+  emotionLastFaces = [];
+  emotionLastFrameSize = { width: 0, height: 0 };
+  $("#emotionCam").srcObject = null;
+  $("#emotionEmpty").classList.remove("hidden");
+  clearEmotionOverlay();
+  renderEmotionFaces([]);
+  $("#emotionFps").textContent = "0 fps";
+  $("#emotionFaces").textContent = "0";
+  $("#emotionDominant").textContent = "—";
+  setEmotionButtons("idle");
+  setEmotionState("idle");
+  if ($("#viewFaceid") && !$("#viewFaceid").classList.contains("hidden")) setEmotionMessage("");
+}
+
+function startEmotionLoop() {
+  stopEmotionLoop();
+  emotionFpsAt = performance.now();
+  emotionFpsCount = 0;
+  const tick = (now) => {
+    if (!emotionStream) return;
+    drawEmotionOverlay(emotionLastFaces, emotionLastFrameSize.width, emotionLastFrameSize.height);
+    if (!emotionPaused && !emotionAnalyzeBlocked && !emotionAnalyzing && now - emotionLastAnalysis >= EMOTION_ANALYSIS_INTERVAL) {
+      emotionLastAnalysis = now;
+      analyzeEmotionFrame();
+    }
+    emotionRaf = requestAnimationFrame(tick);
+  };
+  emotionRaf = requestAnimationFrame(tick);
+}
+
+function stopEmotionLoop() {
+  if (emotionRaf) cancelAnimationFrame(emotionRaf);
+  emotionRaf = 0;
+}
+
+function stopEmotionTracks() {
+  if (emotionStream) emotionStream.getTracks().forEach((track) => track.stop());
+  emotionStream = null;
+}
+
+async function analyzeEmotionFrame() {
+  const video = $("#emotionCam");
+  if (!video.videoWidth || !video.videoHeight || !API.emotion_analyze_frame) return;
+  emotionAnalyzing = true;
+  try {
+    const frame = captureEmotionFrame(video);
+    const threshold = Number($("#emotionThreshold").value || 55) / 100;
+    const device = $("#emotionDevice").value || "CPU";
+    const result = await API.emotion_analyze_frame(frame, device, threshold);
+    if (!result || !result.ok) {
+      emotionAnalyzeBlocked = true;
+      setEmotionMessage((result && result.error) || "EmotionAI не смог обработать кадр.", true);
+      setEmotionState("error", "ошибка анализа");
+      renderEmotionFaces([]);
+      return;
+    }
+    emotionLastFaces = result.faces || [];
+    emotionLastFrameSize = { width: result.width || 0, height: result.height || 0 };
+    renderEmotionFaces(emotionLastFaces);
+    drawEmotionOverlay(emotionLastFaces, emotionLastFrameSize.width, emotionLastFrameSize.height);
+    $("#emotionDeviceStat").textContent = result.device || device;
+    $("#emotionFaces").textContent = String(emotionLastFaces.length);
+    $("#emotionDominant").textContent = emotionLastFaces[0] ? emotionLastFaces[0].label : "—";
+    updateEmotionFps();
+    setEmotionState("live");
+    if (!emotionLastFaces.length) setEmotionMessage("Камера работает. Лицо пока не найдено.");
+    else setEmotionMessage("");
+  } catch (err) {
+    emotionAnalyzeBlocked = true;
+    setEmotionMessage(err.message || "EmotionAI не смог обработать кадр.", true);
+    setEmotionState("error", "ошибка анализа");
+  } finally {
+    emotionAnalyzing = false;
+  }
+}
+
+function captureEmotionFrame(video) {
+  emotionOffscreen = emotionOffscreen || document.createElement("canvas");
+  const maxW = 640;
+  const scale = Math.min(1, maxW / video.videoWidth);
+  emotionOffscreen.width = Math.max(1, Math.round(video.videoWidth * scale));
+  emotionOffscreen.height = Math.max(1, Math.round(video.videoHeight * scale));
+  const ctx = emotionOffscreen.getContext("2d", { willReadFrequently: true });
+  ctx.drawImage(video, 0, 0, emotionOffscreen.width, emotionOffscreen.height);
+  return emotionOffscreen.toDataURL("image/jpeg", 0.72);
+}
+
+function drawEmotionOverlay(faces = [], sourceWidth = 0, sourceHeight = 0) {
+  const video = $("#emotionCam");
+  const canvas = $("#emotionOverlay");
+  const stage = $("#emotionStage");
+  if (!canvas || !stage || !video.videoWidth || !video.videoHeight) return;
+  const ratio = window.devicePixelRatio || 1;
+  const rect = stage.getBoundingClientRect();
+  const width = Math.max(1, Math.round(rect.width * ratio));
+  const height = Math.max(1, Math.round(rect.height * ratio));
+  if (canvas.width !== width || canvas.height !== height) {
+    canvas.width = width;
+    canvas.height = height;
+  }
+  const ctx = canvas.getContext("2d");
+  ctx.clearRect(0, 0, width, height);
+  if (!faces.length) return;
+
+  const rawW = sourceWidth || video.videoWidth;
+  const rawH = sourceHeight || video.videoHeight;
+  const scale = Math.max(width / rawW, height / rawH);
+  const drawW = rawW * scale;
+  const drawH = rawH * scale;
+  const ox = (width - drawW) / 2;
+  const oy = (height - drawH) / 2;
+  ctx.lineWidth = Math.max(2, 2 * ratio);
+  ctx.font = `${12 * ratio}px system-ui, sans-serif`;
+
+  faces.forEach((face) => {
+    const [x1, y1, x2, y2] = face.box || [0, 0, 0, 0];
+    const x = ox + (rawW - x2) * scale;
+    const y = oy + y1 * scale;
+    const w = Math.max(1, (x2 - x1) * scale);
+    const h = Math.max(1, (y2 - y1) * scale);
+    const label = `${face.label || "лицо"} ${Math.round((face.emotion_score || face.confidence || 0) * 100)}%`;
+    ctx.strokeStyle = "#BC9756";
+    ctx.fillStyle = "rgba(188, 151, 86, .18)";
+    ctx.strokeRect(x, y, w, h);
+    ctx.fillRect(x, y, w, h);
+    const textW = ctx.measureText(label).width + 14 * ratio;
+    const textH = 22 * ratio;
+    ctx.fillStyle = "rgba(12, 10, 7, .82)";
+    ctx.fillRect(x, Math.max(0, y - textH), textW, textH);
+    ctx.fillStyle = "#F4E8D0";
+    ctx.fillText(label, x + 7 * ratio, Math.max(14 * ratio, y - 7 * ratio));
+  });
+}
+
+function clearEmotionOverlay() {
+  const canvas = $("#emotionOverlay");
+  if (canvas) canvas.getContext("2d").clearRect(0, 0, canvas.width, canvas.height);
+}
+
+function renderEmotionFaces(faces) {
+  const box = $("#emotionList");
+  if (!faces || !faces.length) {
+    box.innerHTML = `<p class="muted">Лицо пока не найдено. Посмотрите в камеру и проверьте освещение.</p>`;
+    return;
+  }
+  box.innerHTML = faces.map((face, i) => `
+    <div class="emotion-face-row">
+      <b>${escapeHtml(face.label || `Лицо ${i + 1}`)}</b>
+      <span>${Math.round((face.emotion_score || 0) * 100)}%</span>
+    </div>`).join("");
+}
+
+function updateEmotionFps() {
+  emotionFpsCount += 1;
+  const now = performance.now();
+  if (!emotionFpsAt) emotionFpsAt = now;
+  if (now - emotionFpsAt >= 1000) {
+    $("#emotionFps").textContent = `${Math.round(emotionFpsCount * 1000 / (now - emotionFpsAt))} fps`;
+    emotionFpsAt = now;
+    emotionFpsCount = 0;
+  }
+}
+
+function setEmotionButtons(mode) {
+  $("#emotionStart").disabled = mode === "starting" || mode === "live" || mode === "paused";
+  $("#emotionPause").disabled = mode !== "live" && mode !== "paused";
+  $("#emotionStop").disabled = mode !== "live" && mode !== "paused" && mode !== "starting";
+  $("#emotionPause").innerHTML = mode === "paused"
+    ? `${ICONS.play}<span>Продолжить</span>`
+    : `${ICONS.pause}<span>Приостановить</span>`;
+}
+
+function setEmotionState(mode, label = "") {
+  const el = $("#emotionState");
+  el.classList.toggle("live", mode === "live");
+  el.classList.toggle("error", mode === "error");
+  const text = label || (mode === "live" ? "в эфире" : mode === "pause" ? "пауза" : mode === "error" ? "ошибка" : "ожидание");
+  el.querySelector("b").textContent = text;
+}
+
+function setEmotionMessage(text, isError = false) {
+  const el = $("#emotionMessage");
+  el.textContent = text || "";
+  el.classList.toggle("error", !!isError);
+  if (text) status(text);
+}
+
+function humanCameraError(err) {
+  const name = err && err.name ? err.name : "";
+  if (name === "NotAllowedError" || name === "PermissionDeniedError") return "Доступ к камере запрещён. Разрешите камеру для Submind/WebView2 и попробуйте ещё раз.";
+  if (name === "NotFoundError" || name === "DevicesNotFoundError") return "Камера не найдена. Подключите камеру или выберите другое устройство.";
+  if (name === "NotReadableError" || name === "TrackStartError") return "Камера занята другим приложением. Закройте его и попробуйте снова.";
+  if (name === "OverconstrainedError") return "Выбранная камера недоступна с текущими параметрами. Выберите «по умолчанию».";
+  if (name === "SecurityError") return "Камера заблокирована контекстом страницы. Нужен запуск через локальный http://127.0.0.1.";
+  return (err && err.message) || "Не удалось включить камеру.";
+}
+
 /* ----------------------------------------------------- FaceID */
 let fidStream = null, fidFrames = [];
 const fidActions = [
