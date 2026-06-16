@@ -7,61 +7,34 @@
   <link rel="stylesheet" href="css/styles.css" />
 </head>
 <body>
-  <div class="app">
-    <!-- левый рельс -->
-    <nav class="rail">
-      <span class="logo" id="railLogo"></span>
-      <div class="rail-btn active" data-view="editor" title="Рабочая область"><span data-icon="captions"></span></div>
-      <div class="rail-btn" data-view="chat" title="Чат с Qwen"><span data-icon="chat"></span></div>
-      <div class="rail-btn" data-view="faceid" title="EmotionAI"><span data-icon="faceid"></span></div>
-      <div class="rail-btn" data-view="lab" title="Сервисы"><span data-icon="spark"></span></div>
-      <div class="rail-btn" data-view="devices" title="Добавить телефон"><span data-icon="phone"></span></div>
-      <div class="rail-btn" data-view="welcome" title="Проекты"><span data-icon="layers"></span></div>
-      <div class="spacer"></div>
-      <div class="rail-btn" id="btnSettings" title="Настройки"><span data-icon="settings"></span></div>
-    </nav>
-
+  <div class="app single-app">
     <section class="workspace">
       <header class="topbar">
-        <div class="brand"><span class="name">Submind</span><span class="sub" id="brandSub">субтитры · конспекты</span></div>
+        <div class="brand">
+          <span class="logo" id="railLogo"></span>
+          <span class="brand-text">
+            <span class="name">Submind</span>
+            <span class="sub" id="brandSub">субтитры и эмоции</span>
+          </span>
+        </div>
         <button class="btn primary" id="btnOpen"><span data-icon="open"></span>Открыть видео</button>
-        <button class="btn" id="btnReprocess" disabled><span data-icon="spark"></span>Обработать</button>
-        <button class="btn ghost" id="btnExport" disabled><span data-icon="export"></span>Экспорт</button>
         <span class="grow"></span>
         <div class="env" id="env">
-          <span id="envDev" title="Устройство"><span class="dot"></span><span data-icon="chip" class="ic"></span><span id="envDevTxt">устройство</span></span>
+          <span id="envDev" title="Устройство"><span class="dot"></span><span data-icon="chip" class="ic"></span><span id="envDevTxt">CPU</span></span>
           <span id="envFf"><span class="dot"></span>ffmpeg</span>
-          <span id="envOl"><span class="dot"></span>ollama</span>
-          <span id="envQ"><span class="dot"></span>qwen</span>
+          <span id="envEmotion"><span class="dot"></span>EmotionAI</span>
         </div>
       </header>
 
-      <!-- ====================== ПРОЕКТЫ / СТАРТ ====================== -->
-      <div id="viewWelcome" class="view scroll hidden">
-        <div class="welcome">
-          <div class="hero">Локальные субтитры<br>и <em>умные конспекты</em> к видео.</div>
-          <p class="lead">Распознавание речи (faster-whisper), идентификация спикеров через
-            ArcFace-эмбеддинги с кластеризацией, лицевая сетка на 468 точек, чат с локальной
-            моделью Qwen и локальным распознаванием эмоций EmotionAI. Всё работает офлайн.</p>
-          <button class="btn primary" id="btnOpen2"><span data-icon="open"></span>Открыть видео или аудио</button>
-          <div class="feature-grid" id="featureGrid"></div>
-          <div class="recent">
-            <h3 class="sect">Недавние проекты</h3>
-            <div id="recentList"><p class="muted">Пока пусто. Откройте первое видео.</p></div>
-          </div>
-        </div>
-      </div>
-
-      <!-- ====================== РЕДАКТОР ====================== -->
-      <div id="viewEditor" class="view editor">
-        <div class="left">
+      <main id="viewEditor" class="view editor single-editor">
+        <div class="left single-main">
           <div class="stage" id="stage">
             <div class="empty" id="stageEmpty">
               <span data-icon="captions"></span>
-              <div>Откройте видео, чтобы начать</div>
+              <div>Откройте видео, чтобы получить субтитры и эмоции на лицах</div>
             </div>
             <video id="video" class="hidden" playsinline></video>
-            <canvas class="mesh hidden" id="mesh"></canvas>
+            <canvas class="emotion-overlay" id="emotionOverlay"></canvas>
             <button class="stage-fs" id="btnFullscreen" title="Во весь экран"><span data-icon="fullscreen"></span></button>
             <div class="fs-caption" id="fsCaption"></div>
             <div class="fs-player" id="fsPlayer">
@@ -81,14 +54,13 @@
               <button class="iconbtn" id="fsExit"><span data-icon="close"></span></button>
             </div>
 
-            <!-- оверлей обработки -->
             <div class="proc hidden" id="proc">
               <div class="proc-anim">
                 <span class="ring r1"></span><span class="ring r2"></span><span class="ring r3"></span>
                 <span class="scan"></span>
                 <span class="proc-pct" id="procPct">0%</span>
               </div>
-              <div class="proc-label" id="procLabel">Подготовка…</div>
+              <div class="proc-label" id="procLabel">Подготовка...</div>
               <div class="proc-bar"><div id="procFill"></div></div>
               <div class="proc-eta" id="procEta"></div>
               <div class="proc-steps" id="procSteps"></div>
@@ -98,202 +70,16 @@
 
           <div class="live-cap" id="liveCap"></div>
           <div class="transport">
-            <div class="iconbtn" id="btnPlay"><span data-icon="play"></span></div>
+            <button class="iconbtn" id="btnPlay"><span data-icon="play"></span></button>
             <span class="tc" id="tcCur">00:00:00</span>
             <div class="seek" id="seek"><div class="track"></div><div class="fill" id="seekFill"></div></div>
             <span class="tc tcr" id="tcDur">00:00:00</span>
-            <div class="iconbtn" id="btnMeshToggle" title="Лицевая сетка"><span data-icon="faceid"></span></div>
           </div>
           <div class="transcript scroll" id="transcript">
-            <p class="muted pad">Субтитры появятся здесь после обработки. Выделите слова, чтобы получить пояснение от Qwen.</p>
+            <p class="muted pad">Субтитры появятся здесь после обработки.</p>
           </div>
         </div>
-
-        <div class="splitter" id="splitter"></div>
-
-        <div class="right">
-          <div class="tabs" id="tabs">
-            <div class="tab active" data-pane="summary"><span data-icon="brain"></span>Конспект</div>
-            <div class="tab" data-pane="speakers"><span data-icon="faces"></span>Спикеры</div>
-            <div class="tab" data-pane="glossary"><span data-icon="glossary"></span>Глоссарий</div>
-            <div class="tab" data-pane="chapters"><span data-icon="chapters"></span>Главы</div>
-            <div class="tab" data-pane="search"><span data-icon="search"></span>Поиск</div>
-            <div class="tab" data-pane="ask"><span data-icon="spark"></span>Вопрос</div>
-          </div>
-          <div class="panel-body scroll">
-            <div class="pane active" id="paneSummary">
-              <h3>Конспект <button class="btn ghost" id="btnSummary"><span data-icon="spark"></span>Сгенерировать</button></h3>
-              <div class="md" id="summaryOut"><p class="muted">Нажмите «Сгенерировать» — Qwen построит структурированный конспект.</p></div>
-            </div>
-            <div class="pane" id="paneSpeakers">
-              <h3>Спикеры в кадре</h3>
-              <div class="persons" id="personsOut"><p class="muted">Запустите обработку со включённой опцией «Спикеры». Один человек = один ID, имена сохраняются между сессиями.</p></div>
-            </div>
-            <div class="pane" id="paneGlossary">
-              <h3>Глоссарий <button class="btn ghost" id="btnGlossary"><span data-icon="spark"></span>Извлечь</button></h3>
-              <div id="glossaryOut"><p class="muted">Qwen найдёт ключевые термины и даст определения.</p></div>
-            </div>
-            <div class="pane" id="paneChapters">
-              <h3>Смысловые главы <button class="btn ghost" id="btnChapters"><span data-icon="spark"></span>Разбить</button></h3>
-              <div id="chaptersOut"><p class="muted">Видео будет разбито на главы с таймкодами.</p></div>
-            </div>
-            <div class="pane" id="paneSearch">
-              <h3>Поиск по расшифровке</h3>
-              <div class="field"><span data-icon="search"></span><input id="searchInput" placeholder="Что искать..." /></div>
-              <div id="searchOut"></div>
-            </div>
-            <div class="pane" id="paneAsk">
-              <h3>Спросить по видео</h3>
-              <div class="field"><span data-icon="spark"></span><input id="askInput" placeholder="Например: какие выводы сделал автор?" /></div>
-              <div class="md" id="askOut"><p class="muted">Qwen отвечает строго по содержанию расшифровки.</p></div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- ====================== ЧАТ ====================== -->
-      <div id="viewChat" class="view chat hidden">
-        <div class="chat-head">
-          <span class="ct"><span data-icon="bot"></span>Чат с Qwen</span>
-          <span class="grow"></span>
-          <select id="chatAttach" class="mini-select" title="Привязать видео к диалогу"></select>
-          <button class="btn ghost" id="chatClear">Очистить</button>
-        </div>
-        <div class="chat-body scroll" id="chatBody">
-          <div class="chat-hello">
-            <span data-icon="bot"></span>
-            <p>Спросите что угодно. Можно привязать обработанный проект справа вверху — и обсуждать его содержание. Кнопка микрофона записывает голосовое: оно расшифровывается и уходит как текст.</p>
-          </div>
-        </div>
-        <div class="chat-input">
-          <button class="iconbtn" id="chatMic" title="Записать голосовое"><span data-icon="mic"></span></button>
-          <div class="mic-viz hidden" id="micViz"><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
-          <textarea id="chatText" rows="1" placeholder="Сообщение…"></textarea>
-          <button class="iconbtn send" id="chatSend"><span data-icon="send"></span></button>
-        </div>
-      </div>
-
-      <!-- ====================== EMOTIONAI ====================== -->
-      <div id="viewFaceid" class="view emotion-view scroll hidden">
-        <div class="emotion-wrap">
-          <header class="emotion-head">
-            <div>
-              <h2 class="sect"><span data-icon="faceid"></span> EmotionAI</h2>
-              <p class="muted">Локальное распознавание лиц и эмоций через OpenVINO. Кадры камеры не покидают компьютер.</p>
-            </div>
-            <div class="emotion-state" id="emotionState"><span></span><b>ожидание</b></div>
-          </header>
-
-          <div class="emotion-layout">
-            <section class="emotion-camera-panel">
-              <div class="emotion-stage" id="emotionStage">
-                <video id="emotionCam" autoplay muted playsinline></video>
-                <canvas id="emotionOverlay"></canvas>
-                <div class="emotion-empty" id="emotionEmpty">
-                  <span data-icon="cam"></span>
-                  <b>Камера выключена</b>
-                  <span>Включите её, чтобы начать локальный анализ</span>
-                </div>
-              </div>
-              <div class="emotion-actions">
-                <button class="btn primary" id="emotionStart"><span data-icon="cam"></span>Включить камеру</button>
-                <button class="btn" id="emotionPause" disabled><span data-icon="pause"></span>Приостановить</button>
-                <button class="btn ghost" id="emotionStop" disabled><span data-icon="close"></span>Выключить</button>
-              </div>
-              <p class="emotion-message" id="emotionMessage"></p>
-            </section>
-
-            <aside class="emotion-side">
-              <div class="emotion-metrics">
-                <div><span>устройство</span><b id="emotionDeviceStat">—</b></div>
-                <div><span>скорость</span><b id="emotionFps">0 fps</b></div>
-                <div><span>лица</span><b id="emotionFaces">0</b></div>
-                <div><span>эмоция</span><b id="emotionDominant">—</b></div>
-              </div>
-
-              <div class="emotion-settings">
-                <label>Камера<select id="emotionCamera"><option value="">по умолчанию</option></select></label>
-                <label>OpenVINO<select id="emotionDevice"><option value="CPU">CPU</option></select></label>
-                <label>Порог лица <output id="emotionThresholdValue">55%</output>
-                  <input id="emotionThreshold" type="range" min="30" max="90" value="55" />
-                </label>
-              </div>
-
-              <div class="emotion-detections">
-                <h3>Сейчас в кадре</h3>
-                <div id="emotionList"><p class="muted">Данные появятся после запуска камеры.</p></div>
-              </div>
-            </aside>
-          </div>
-        </div>
-      </div>
-
-      <!-- ====================== СЕРВИСЫ ====================== -->
-      <div id="viewLab" class="view lab scroll hidden">
-        <div class="lab-wrap">
-          <h2 class="sect"><span data-icon="spark"></span> Сервисы</h2>
-          <div class="lab-grid">
-            <div class="lab-card">
-              <h3><span data-icon="cards"></span> Карточки для запоминания</h3>
-              <p class="muted">Из расшифровки текущего видео Qwen делает карточки вопрос-ответ.</p>
-              <button class="btn" id="labCards"><span data-icon="spark"></span>Сгенерировать</button>
-              <div id="cardsOut" class="cards-out"></div>
-            </div>
-            <div class="lab-card">
-              <h3><span data-icon="compare"></span> Сравнение лиц</h3>
-              <p class="muted">Сверить два профиля FaceID — один человек или нет.</p>
-              <div class="cmp-row">
-                <select id="cmpA" class="mini-select"></select>
-                <select id="cmpB" class="mini-select"></select>
-              </div>
-              <button class="btn" id="labCompare"><span data-icon="compare"></span>Сравнить</button>
-              <div id="cmpOut"></div>
-            </div>
-            <div class="lab-card">
-              <h3><span data-icon="user"></span> Известные лица</h3>
-              <p class="muted">Галерея спикеров, узнаваемых между сессиями.</p>
-              <div id="knownOut" class="known-out"><p class="muted">Пусто.</p></div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- ====================== УСТРОЙСТВА ====================== -->
-      <div id="viewDevices" class="view devices scroll hidden">
-        <div class="devices-wrap">
-          <h2 class="sect"><span data-icon="phone"></span> Добавить телефон</h2>
-          <div class="device-grid">
-            <section class="device-panel">
-              <h3>Подключение по локальной сети</h3>
-              <div class="qr-box" id="lanQr"></div>
-              <div class="copy-url" id="lanUrl">LAN URL появится после запуска сервера</div>
-              <div class="field compact-field"><span data-icon="link"></span><input id="lanManualUrl" placeholder="http://192.168.1.10:5000" /><button class="btn" id="lanConnect">OK</button></div>
-              <button class="btn" id="refreshLan"><span data-icon="qr"></span>Обновить</button>
-            </section>
-            <section class="device-panel">
-              <h3>Связанные устройства</h3>
-              <div id="deviceList"><p class="muted">Пока нет устройств.</p></div>
-            </section>
-            <section class="device-panel mobile-upload">
-              <h3>Отправить видео на этот компьютер</h3>
-              <input type="file" id="mobileVideo" accept="video/*,audio/*" />
-              <div class="opt-grid mini">
-                <label><input type="checkbox" id="mobSub" checked /> Субтитры</label>
-                <label><input type="checkbox" id="mobSummary" checked /> Конспект</label>
-                <label><input type="checkbox" id="mobGlossary" /> Глоссарий</label>
-                <label><input type="checkbox" id="mobChapters" /> Главы</label>
-              </div>
-              <button class="btn primary" id="mobileSend"><span data-icon="send"></span>Отправить</button>
-              <div class="install-progress hidden" id="mobileUploadProgress"><div id="mobileUploadFill"></div></div>
-              <div class="muted" id="mobileUploadStatus"></div>
-            </section>
-            <section class="device-panel">
-              <h3>LAN-задачи</h3>
-              <div id="lanJobs"><p class="muted">Очередь пуста.</p></div>
-            </section>
-          </div>
-        </div>
-      </div>
+      </main>
 
       <footer class="statusbar">
         <span id="statusText">Готов</span>
@@ -304,84 +90,10 @@
     </section>
   </div>
 
-  <!-- всплывашка «Подробнее» -->
-  <div class="explain-pop" id="explainPop"><span data-icon="spark"></span>Подробнее</div>
   <div class="toast hidden" id="toast">
     <div class="toast-title">Ошибка</div>
     <div class="toast-text" id="toastText"></div>
     <button class="iconbtn" id="toastClose"><span data-icon="close"></span></button>
-  </div>
-
-  <!-- drawer ответов Qwen -->
-  <aside class="drawer" id="drawer">
-    <div class="dhead">
-      <span class="tt"><span data-icon="spark"></span><span id="drawerTitle">Подробнее</span></span>
-      <div class="iconbtn" id="drawerClose"><span data-icon="close"></span></div>
-    </div>
-    <div class="dbody scroll"><div class="sel" id="drawerSel"></div><div class="md" id="drawerOut"></div></div>
-  </aside>
-
-  <!-- модал выбора задач при открытии видео -->
-  <div class="overlay" id="procOverlay">
-    <div class="modal">
-      <div class="mh">Что сделать с видео? <div class="iconbtn" id="procModalClose"><span data-icon="close"></span></div></div>
-      <div class="mb">
-        <div class="opt-grid" id="optGrid"></div>
-      </div>
-      <div class="mf">
-        <button class="btn ghost" id="procJustOpen">Только открыть</button>
-        <button class="btn primary" id="procStart"><span data-icon="spark"></span>Начать обработку</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- модал настроек -->
-  <div class="overlay" id="settingsOverlay">
-    <div class="modal">
-      <div class="mh">Настройки <div class="iconbtn" id="settingsClose"><span data-icon="close"></span></div></div>
-      <div class="mb" id="settingsBody"></div>
-      <div class="mf">
-        <button class="btn ghost" id="settingsCancel">Отмена</button>
-        <button class="btn primary" id="settingsSave"><span data-icon="check"></span>Сохранить</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- модал первого запуска / установка пакетов -->
-  <div class="overlay" id="installOverlay">
-    <div class="modal">
-      <div class="mh">Первый запуск — компоненты</div>
-      <div class="mb">
-        <p class="muted" style="margin-bottom:6px;">Базовый интерфейс готов к работе. Отметьте, что доустановить.
-          Невыбранное можно поставить позже в настройках; связанные функции будут отключены.</p>
-        <div id="installList"></div>
-        <div class="install-progress hidden" id="installProgress"><div id="installFill"></div></div>
-        <div class="muted" id="installStatus"></div>
-        <pre class="install-log hidden" id="installLog"></pre>
-      </div>
-      <div class="mf">
-        <button class="btn ghost" id="installSkip">Пропустить</button>
-        <button class="btn primary" id="installRun"><span data-icon="download"></span>Установить выбранное</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- модал моделей Ollama -->
-  <div class="overlay" id="modelsOverlay">
-    <div class="modal">
-      <div class="mh">Модели Ollama <div class="iconbtn" id="modelsClose"><span data-icon="close"></span></div></div>
-      <div class="mb">
-        <div id="modelsList"></div>
-        <div class="field" style="margin-top:10px;">
-          <span data-icon="download"></span>
-          <input id="pullName" placeholder="Скачать модель, напр. qwen2.5:7b-instruct" />
-          <button class="btn" id="pullBtn">Скачать</button>
-        </div>
-        <div class="install-progress hidden" id="pullProgress"><div id="pullFill"></div></div>
-        <div class="muted" id="pullStatus"></div>
-      </div>
-      <div class="mf"><button class="btn ghost" id="modelsDone">Готово</button></div>
-    </div>
   </div>
 
   <script type="module" src="js/app.js"></script>
