@@ -112,19 +112,6 @@ def _probe() -> dict:
                 info["vram_gb"] = max(g["vram_gb"] for g in info["gpus"])
     except Exception:
         pass
-    # доступные провайдеры onnxruntime (для insightface)
-    try:
-        import onnxruntime as ort
-        info["onnx_providers"] = list(ort.get_available_providers())
-        if any("CUDA" in p for p in info["onnx_providers"]):
-            info["has_cuda"] = True
-            info["cuda_ready"] = True
-            info["onnx_cuda_ready"] = True
-            info["gpu_available"] = True
-            if not info["gpus"]:
-                info["gpus"].append({"name": "CUDA GPU", "vram_gb": 0.0})
-    except Exception:
-        pass
     info["asr_cuda_ready"] = _ctranslate2_cuda_ready()
     if info["asr_cuda_ready"]:
         info["has_cuda"] = True
@@ -138,7 +125,7 @@ def detect(force: bool = False) -> dict:
     if not force and config.DEVICE_PATH.exists():
         try:
             cached = json.loads(config.DEVICE_PATH.read_text(encoding="utf-8"))
-            if "asr_cuda_ready" in cached and "onnx_cuda_ready" in cached:
+            if "asr_cuda_ready" in cached:
                 return cached
         except Exception:
             pass

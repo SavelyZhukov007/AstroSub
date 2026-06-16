@@ -30,7 +30,7 @@ def main():
         url = str(config.web_dir() / "index.html")
 
     webview.create_window(
-        title="Submind — субтитры и конспекты",
+        title="Submind — субтитры и эмоции",
         url=url,
         js_api=api,
         width=1360,

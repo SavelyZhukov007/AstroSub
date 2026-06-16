@@ -4,11 +4,12 @@
 Submind build helper.
 
 Команды:
-    python build.py install [--yes]   установить все зависимости (pip + проверки ffmpeg/ollama)
+    python build.py go                скачать модели/зависимости и собрать Submind.exe
+    python build.py install [--yes]   установить зависимости Python
     python build.py build  [--onedir] собрать standalone .exe через PyInstaller
     python build.py run                запустить приложение из исходников
     python build.py clean              удалить build/, dist/, *.spec, __pycache__
-    python build.py doctor             проверить окружение (python, ffmpeg, ollama, gpu)
+    python build.py doctor             проверить окружение (python, ffmpeg, EmotionAI)
 
 Идея: один файл управляет жизненным циклом. На выходе build даёт dist/Submind.exe
 (на Windows) который запускается двойным кликом.
@@ -21,6 +22,7 @@ import shutil
 import subprocess
 import sys
 import time
+import urllib.request
 from pathlib import Path
 
 if hasattr(sys.stdout, "reconfigure"):
@@ -38,6 +40,26 @@ WEB_DIR = ROOT / "web"
 MODELS_DIR = ROOT / "models"
 BUILD_META_DIR = ROOT / ".build-meta"
 BUILD_INFO = BUILD_META_DIR / "build-info.json"
+ROOT_EXE = ROOT / (APP_NAME + (".exe" if os.name == "nt" else ""))
+
+EMOTION_MODEL_FILES = [
+    (
+        "emotion/intel/face-detection-retail-0004/FP16/face-detection-retail-0004.xml",
+        "https://storage.openvinotoolkit.org/repositories/open_model_zoo/2022.3/models_bin/1/face-detection-retail-0004/FP16/face-detection-retail-0004.xml",
+    ),
+    (
+        "emotion/intel/face-detection-retail-0004/FP16/face-detection-retail-0004.bin",
+        "https://storage.openvinotoolkit.org/repositories/open_model_zoo/2022.3/models_bin/1/face-detection-retail-0004/FP16/face-detection-retail-0004.bin",
+    ),
+    (
+        "emotion/intel/emotions-recognition-retail-0003/FP16/emotions-recognition-retail-0003.xml",
+        "https://storage.openvinotoolkit.org/repositories/open_model_zoo/2022.3/models_bin/1/emotions-recognition-retail-0003/FP16/emotions-recognition-retail-0003.xml",
+    ),
+    (
+        "emotion/intel/emotions-recognition-retail-0003/FP16/emotions-recognition-retail-0003.bin",
+        "https://storage.openvinotoolkit.org/repositories/open_model_zoo/2022.3/models_bin/1/emotions-recognition-retail-0003/FP16/emotions-recognition-retail-0003.bin",
+    ),
+]
 
 C_RESET = "\033[0m"
 C_DIM = "\033[2m"
@@ -66,6 +88,12 @@ def run(cmd, check=True, env=None):
     return res.returncode
 
 
+def copy_file(src: Path, dst: Path):
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(src, dst)
+    say(f"  скопирован {src} -> {dst}", C_DIM)
+
+
 def which(name):
     return shutil.which(name)
 
@@ -92,14 +120,21 @@ def cmd_install(args):
     say("Устанавливаю зависимости проекта...", C_HEAD)
     run([sys.executable, "-m", "pip", "install", "-r", str(REQUIREMENTS)])
 
-    # GPU-ускорение (опционально): пробуем поставить onnxruntime-gpu, не падаем при ошибке
-    if args.gpu:
-        say("Пробую поставить GPU-ускорение (onnxruntime-gpu)...", C_HEAD)
-        run([sys.executable, "-m", "pip", "install", "onnxruntime-gpu"], check=False)
+    say("Кладу runtime-библиотеки в корневую packages/...", C_HEAD)
+    packages = ROOT / "packages"
+    if packages.exists():
+        shutil.rmtree(packages)
+    packages.mkdir(parents=True, exist_ok=True)
+    run([
+        sys.executable, "-m", "pip", "install",
+        "--upgrade",
+        "--target", str(packages),
+        "-r", str(REQUIREMENTS),
+    ])
 
     head("Проверка внешних зависимостей")
     _check_ffmpeg()
-    _check_ollama()
+    ensure_emotion_models()
 
     say("\nГотово. Запуск: python build.py run", C_OK)
 
@@ -114,23 +149,22 @@ def _check_ffmpeg():
         say("    Linux   : sudo apt install ffmpeg", C_DIM)
 
 
-def _check_ollama():
-    if which("ollama"):
-        say("  ollama найден: " + which("ollama"), C_OK)
+def ensure_emotion_models():
+    head("Проверка моделей EmotionAI")
+    for rel, url in EMOTION_MODEL_FILES:
+        dst = MODELS_DIR / rel
+        if dst.exists() and dst.stat().st_size > 0:
+            say("  есть " + str(dst.relative_to(ROOT)), C_OK)
+            continue
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        say("  скачиваю " + str(dst.relative_to(ROOT)), C_HEAD)
         try:
-            out = subprocess.run(["ollama", "list"], capture_output=True, text=True, timeout=10)
-            models = [l.split()[0] for l in out.stdout.splitlines()[1:] if l.strip()]
-            qwen = [m for m in models if "qwen" in m.lower()]
-            if qwen:
-                say("  Найдены модели qwen: " + ", ".join(qwen), C_OK)
-            else:
-                say("  Модель qwen не найдена. Поставьте, например:", C_WARN)
-                say("    ollama pull qwen2.5:7b-instruct", C_DIM)
-        except Exception:
-            pass
-    else:
-        say("  ollama НЕ найден. Конспекты/«Подробнее» не будут работать без него.", C_WARN)
-        say("    Установка: https://ollama.com  затем  ollama pull qwen2.5:7b-instruct", C_DIM)
+            urllib.request.urlretrieve(url, dst)
+        except Exception as exc:
+            if dst.exists():
+                dst.unlink(missing_ok=True)
+            raise SystemExit(f"Не удалось скачать {url}: {exc}") from exc
+    say("  модели EmotionAI готовы", C_OK)
 
 
 # --------------------------------------------------------------------------- #
@@ -200,13 +234,11 @@ def cmd_build(args):
     if icon.exists():
         cmd += ["--icon", str(icon)]
 
-    # Тяжёлые ML-зависимости ставятся мастером первого запуска в managed runtime
-    # (%APPDATA%\Submind\runtime\.venv или платформенный аналог).
-    # Так новый exe стартует чистым, а обновления не тащат хвосты старой сборки.
-    for mod in ("faster_whisper", "ctranslate2", "onnxruntime", "cv2", "numpy", "sklearn", "insightface", "mediapipe", "openvino", "torch"):
+    # Тяжёлые ML-зависимости ставятся в окружение/managed runtime рядом с проектом,
+    # а не запекаются в bootloader.
+    for mod in ("faster_whisper", "ctranslate2", "cv2", "numpy", "openvino", "torch"):
         cmd += ["--exclude-module", mod]
     cmd += ["--hidden-import", "pip._internal.cli.main"]
-    cmd += ["--hidden-import", "qrcode.image.svg"]
     cmd += ["--hidden-import", "fileinput"]
 
     cmd.append(str(ENTRY))
@@ -214,7 +246,21 @@ def cmd_build(args):
 
     out = ROOT / "dist" / (APP_NAME + (".exe" if os.name == "nt" else ""))
     say(f"\nГотово. Исполняемый файл: {out}", C_OK)
-    say("Первый запуск предложит скачать ML-пакеты и CUDA-ускорение, если найдена видеокарта.", C_DIM)
+    say("Для запуска рядом с корневыми web/ и models используйте python build.py go.", C_DIM)
+
+
+def cmd_go(args):
+    head("Полная подготовка Submind")
+    args.yes = True
+    args.gpu = False
+    cmd_install(args)
+    ensure_emotion_models()
+    args.onedir = False
+    cmd_build(args)
+    built = ROOT / "dist" / (APP_NAME + (".exe" if os.name == "nt" else ""))
+    if built.exists():
+        copy_file(built, ROOT_EXE)
+        say(f"\nГотово. Запускайте: {ROOT_EXE}", C_OK)
 
 
 # --------------------------------------------------------------------------- #
@@ -235,26 +281,23 @@ def cmd_doctor(_args):
     head("Диагностика окружения")
     say(f"  Python : {sys.version.split()[0]}  ({sys.executable})")
     _check_ffmpeg()
-    _check_ollama()
+    ensure_emotion_models()
     try:
-        import onnxruntime as ort
-        say("  onnxruntime providers: " + ", ".join(ort.get_available_providers()), C_OK)
+        import openvino as _openvino  # noqa: F401
+        say("  openvino установлен", C_OK)
     except Exception:
-        say("  onnxruntime не установлен (распознавание лиц недоступно).", C_WARN)
-    try:
-        import torch
-        say("  torch CUDA: " + ("да" if torch.cuda.is_available() else "нет"), C_DIM)
-    except Exception:
-        pass
+        say("  openvino не установлен", C_WARN)
 
 
 def main():
     parser = argparse.ArgumentParser(prog="build.py", description="Submind build helper")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
+    sub.add_parser("go", help="скачать модели/зависимости и собрать exe").set_defaults(func=cmd_go)
+
     p_inst = sub.add_parser("install", help="установить зависимости")
     p_inst.add_argument("--yes", action="store_true", help="без подтверждения")
-    p_inst.add_argument("--gpu", action="store_true", help="поставить onnxruntime-gpu")
+    p_inst.add_argument("--gpu", action="store_true", help=argparse.SUPPRESS)
     p_inst.set_defaults(func=cmd_install)
 
     p_build = sub.add_parser("build", help="собрать .exe")

@@ -1,138 +1,39 @@
 # Submind
 
-Локальный инструмент для генерации субтитров к видео, умных конспектов и
-углублённого разбора. Всё считается офлайн на вашем компьютере.
+Локальное desktop-приложение для видео: пользователь открывает файл, Submind строит живые субтитры и поверх кадра выделяет лица рамками с подписью эмоции.
 
-## Что умеет
+## Сценарий
 
-- Распознавание речи (faster-whisper) с таймкодами по словам и караоке-подсветкой.
-- Кнопка «Подробнее»: выделяете слова в субтитрах — локальная модель Qwen (через Ollama)
-  объясняет фрагмент в боковой панели.
-- Конспект всей расшифровки, глоссарий терминов, разбивка на смысловые главы, режим
-  «вопрос по видео» — всё на Qwen.
-- Идентификация спикеров: InsightFace (ArcFace, 512-мерные эмбеддинги) + агломеративная
-  кластеризация по косинусной дистанции. Один человек получает один устойчивый ID и не
-  дробится на нескольких — поэтому ссылки на спикеров в конспектах корректны.
-- Лицевая сетка на 468 точек (MediaPipe FaceMesh) поверх кадра.
-- Авто-перевод субтитров, полнотекстовый поиск, заметки/закладки.
-- Экспорт в SRT, VTT, ASS, TXT, Markdown (с конспектом и глоссарием).
-- Локальная история проектов.
+1. Открыть приложение.
+2. Нажать `Открыть видео`.
+3. Дождаться распознавания речи.
+4. Запустить воспроизведение: субтитры идут под видео, лица подсвечиваются прямо поверх кадра.
 
-## Предварительные требования
+## Сборка
 
-- Python 3.10+
-- ffmpeg в PATH (извлечение аудио и кадров)
-- Ollama с уже скачанной моделью Qwen, например:
-  `ollama pull qwen2.5:7b-instruct`
-
-## Быстрый старт
-
-```bash
-python build.py install --yes     # установить все зависимости
-python build.py doctor            # проверить ffmpeg / ollama / GPU
-python build.py run               # запустить из исходников
-python build.py build             # собрать standalone .exe (dist/Submind.exe)
+```powershell
+python build.py go
 ```
 
-`python build.py install --yes --gpu` дополнительно поставит onnxruntime-gpu.
-`python build.py build` перед сборкой автоматически очищает старые `build/`, `dist/`,
-`Submind.spec`, `.build-meta/` и `__pycache__`, затем создаёт новый build-id.
+Команда:
 
-## Структура
+- устанавливает Python-зависимости;
+- кладёт runtime-библиотеки в корневую `packages/`;
+- проверяет и скачивает модели EmotionAI в корневую `models/`;
+- собирает `Submind.exe`;
+- копирует готовый exe в корень проекта рядом с `web/`, `models/` и `packages/`.
 
-```
-build.py            управление: install / build / run / clean / doctor
-requirements.txt
-app/
-  main.py           точка входа (окно pywebview)
-  api.py            мост JS <-> Python, фоновые задачи
-  config.py         настройки и пути
-  core/
-    transcribe.py   faster-whisper
-    llm.py          клиент Ollama/Qwen
-    faces.py        InsightFace + кластеризация + FaceMesh 468
-    diarize.py      привязка спикеров к репликам
-    media.py        ffmpeg/opencv
-    export.py       SRT/VTT/ASS/TXT/MD
-    project.py      сохранение проектов
-web/                интерфейс (HTML/CSS/JS, SVG-иконки)
+## Команды
+
+```powershell
+python build.py run       # запуск из исходников
+python build.py doctor    # проверка ffmpeg, OpenVINO и моделей
+python build.py clean     # очистка build/dist
 ```
 
-## Заметки
+## Основные зависимости
 
-- При первом распознавании faster-whisper один раз скачивает выбранную модель.
-- InsightFace при первом запуске скачивает пакет моделей buffalo_l.
-- Конспекты и «Подробнее» требуют запущенного Ollama; без него субтитры всё равно работают.
-- Собранный `.exe` стартует чистым: тяжёлые ML-пакеты ставятся мастером первого запуска в
-  `%APPDATA%\Submind\packages`. Если найдена NVIDIA/CUDA-видеокарта, мастер предложит
-  CUDA-пакеты и после установки пересканирует устройство.
-
----
-
-## Что нового (v2)
-
-- **Определение устройства.** При первом запуске сохраняется `device.json`. Если есть видеокарта (CUDA), тяжёлые задачи (субтитры, конспект, чат) идут на GPU, а лица и разбор кадров — параллельно на CPU. Политику можно менять в настройках (`auto/gpu/cpu`).
-- **Видео отображается корректно.** Файл отдаётся локальным http-сервером с поддержкой Range — больше нет чёрного экрана. Весь UI тоже работает по `http://127.0.0.1` (безопасный контекст для камеры/микрофона).
-- **Модальное окно обработки.** При открытии видео можно выбрать, что считать: субтитры, спикеры, конспект, глоссарий, главы, перевод.
-- **Анимация обработки** на месте плеера: прогресс 0–100 %, название текущего шага и оценка оставшегося времени.
-- **Спикеры:** превью лиц, имена, узнавание между сессиями (галерея `facedb.json`), пол и возраст.
-- **Полный экран** и **изменение ширины** колонок (перетаскивание разделителя).
-- **Иконка лицевой сетки** заменена на значок в стиле Face ID.
-- **Чат с Qwen** (левый рельс): обычный диалог + привязка обработанного видео + голосовые сообщения (анимированный микрофон, расшифровка в фоне, телеграм-стиль с кнопкой «текст»).
-- **Сервис FaceID:** запись лица с подсказками, разбор кадров (точки 106/468, пол, возраст) в JSON, вывод Qwen, обсуждение.
-- **Доп. сервисы:** карточки для запоминания, сравнение лиц, галерея известных лиц.
-- **Выбор и скачивание моделей Ollama** (клик по чипу устройства в шапке).
-- **Прокрутка** во всех областях исправлена.
-- **Первый запуск:** проверка опциональных пакетов и выбор, что доустановить; невыбранное просто отключает связанные функции.
-
-> Возраст/пол берутся из InsightFace (genderage) — офлайн-замена OpenVINO. Камера и микрофон требуют разрешения WebView2.
-
-## Cross-platform release and LAN (v3)
-
-- Runtime first run is managed by `uv` in the per-user `Submind/runtime` folder: Python 3.10, import health checks, CPU/CUDA fallback, and install logs in `Submind/logs`.
-- If `submind-runtime-{platform}-{arch}.zip` sits next to the app, Submind installs from it offline. After an online install it builds that archive and asks whether to keep or delete the cache.
-- Desktop startup uses a single-instance guard. If older Submind processes exist, the app asks before closing them.
-- LAN API is separate from the local `127.0.0.1` media server and listens on `0.0.0.0`: `hello`, pairing, devices, jobs, chunks, complete, events, bundle.
-- The “Add phone” view shows QR/URL, linked devices, approve/reject/trust controls, and LAN job status.
-- Phones and other computers upload metadata, wait for approval, send video chunks with sha256, and receive a bundle with `project.json`, `subtitles.srt`, `subtitles.vtt`, `transcript.txt`, and `summary.md`.
-- iPhone is supported as a browser/PWA client. Android is supported as a Capacitor WebView debug APK with manual LAN URL fallback.
-- UI uses viewport breakpoints instead of per-device hardcoding: compact/mobile, tablet, desktop, ultrawide, safe-area, `dvh/svh`, orientation, and aspect-ratio handling.
-- The fullscreen player has custom controls, fullscreen captions, keyboard shortcuts, and touch seek.
-- Processing emits explicit stages and progress instead of silently sitting at 0%.
-
-## CI builds
-
-- Windows x64: `Submind.exe` zip.
-- Linux x86_64: tar.gz.
-- macOS x64 and arm64: `.app.zip`.
-- Android: Capacitor debug APK.
-
-PyInstaller runs on each target OS because it is not a cross-compiler. macOS signing/notarization are optional future CI secret steps.
-
-## 20-feature backlog
-
-Prioritized after stability:
-
-1. Batch queue.
-2. Smart chapters with thumbnails.
-3. Subtitle editor.
-4. Semantic project search.
-5. Clip export by chapter.
-
-Remaining backlog:
-
-6. Watch folder.
-7. Speaker timeline heatmap.
-8. Confidence heatmap.
-9. Silence/jump detection.
-10. Project share bundle.
-11. Anki/flashcard export.
-12. Meeting-minute templates.
-13. OCR frame search.
-14. Action items.
-15. Named entity index.
-16. Notes/bookmarks timeline.
-17. Reprocess history.
-18. GPU benchmark.
-19. Per-segment language detection.
-20. Privacy cleanup/report.
+- `pywebview` для desktop-окна;
+- `faster-whisper` для субтитров;
+- `opencv-python` для чтения кадров;
+- `openvino` и модели Open Model Zoo для лиц и эмоций.

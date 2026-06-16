@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Хранение проектов: расшифровка, лица, конспекты, заметки, чат."""
+"""Хранение результата обработки видео."""
 from __future__ import annotations
 
 import json
@@ -10,9 +10,9 @@ from pathlib import Path
 from .. import config
 
 _SCHEMA = {
-    "language": None, "duration": 0.0, "segments": [], "persons": [],
-    "face_timeline": [], "summary": "", "glossary": [], "chapters": [],
-    "notes": [], "bookmarks": [], "chat": [], "tasks": {},
+    "language": None,
+    "duration": 0.0,
+    "segments": [],
 }
 
 
@@ -57,7 +57,6 @@ def list_projects() -> list:
                 "duration": d.get("duration", 0),
                 "video_path": d.get("video_path", ""),
                 "has_segments": bool(d.get("segments")),
-                "has_persons": bool(d.get("persons")),
             })
         except Exception:
             continue

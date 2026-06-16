@@ -35,23 +35,6 @@ FEATURES = {
         "packages": ["faster-whisper>=1.2,<2"],
         "modules": ["faster_whisper"],
     },
-    "faces": {
-        "title": "Лица и спикеры",
-        "desc": "Идентификация спикеров и FaceID (InsightFace).",
-        "packages": [
-            "insightface>=0.7.3",
-            "onnxruntime>=1.17",
-            "scikit-learn>=1.3",
-            "scikit-image>=0.22",
-        ],
-        "modules": ["insightface", "onnxruntime", "sklearn"],
-    },
-    "mesh": {
-        "title": "Сетка лица 468",
-        "desc": "Плотная лицевая сетка (MediaPipe).",
-        "packages": ["mediapipe>=0.10"],
-        "modules": ["mediapipe"],
-    },
     "video": {
         "title": "Обработка кадров",
         "desc": "Чтение видео и превью (OpenCV).",
@@ -63,12 +46,6 @@ FEATURES = {
         "desc": "Распознавание лиц и эмоций в реальном времени (OpenVINO).",
         "packages": ["openvino>=2024,<2027"],
         "modules": ["openvino"],
-    },
-    "gpu": {
-        "title": "Ускорение на видеокарте",
-        "desc": "CUDA-сборка onnxruntime, если доступна NVIDIA/CUDA.",
-        "packages": ["onnxruntime-gpu>=1.17"],
-        "modules": ["onnxruntime"],
     },
 }
 
@@ -356,13 +333,10 @@ class RuntimeInstaller:
 
 def packages_for(keys: Iterable[str]) -> list[str]:
     selected = list(keys or [])
-    key_set = set(selected)
     packages = []
     for key in selected:
         if key in FEATURES:
             packages.extend(FEATURES[key]["packages"])
-    if "gpu" in key_set:
-        packages = [p for p in packages if not p.startswith("onnxruntime>")]
     seen, out = set(), []
     for pkg in packages:
         if pkg not in seen:
@@ -379,48 +353,34 @@ def health_check(keys: Optional[Iterable[str]] = None) -> dict:
         for key in keys:
             modules.extend(FEATURES.get(key, {}).get("modules", []))
     else:
-        modules = ["faster_whisper", "cv2", "insightface", "onnxruntime", "mediapipe", "openvino"]
+        modules = ["faster_whisper", "cv2", "openvino"]
     modules = list(dict.fromkeys(modules))
     for name in modules:
         try:
             importlib.import_module(name)
         except Exception as e:  # noqa: BLE001
             failed.append({"module": name, "error": str(e)})
-    providers = []
-    try:
-        import onnxruntime as ort
-        providers = list(ort.get_available_providers())
-    except Exception:
-        pass
-    if keys and "gpu" in set(keys) and not any("CUDA" in p for p in providers):
-        failed.append({"module": "onnxruntime-gpu", "error": "CUDAExecutionProvider is unavailable"})
     return {
         "ok": not failed,
         "failed": failed,
-        "onnx_providers": providers,
-        "cuda": any("CUDA" in p for p in providers),
+        "onnx_providers": [],
+        "cuda": False,
     }
 
 
 def check_features() -> list:
     config.bootstrap_runtime_packages()
-    from . import device
-
-    gpu_available = bool(device.detect().get("gpu_available") or device.detect().get("has_cuda"))
     out = []
     for key, meta in FEATURES.items():
         installed = all(module_available(m) for m in meta["modules"])
-        if key == "gpu":
-            health = health_check()
-            installed = health["cuda"]
         out.append({
             "key": key,
             "title": meta["title"],
             "desc": meta["desc"],
             "packages": meta["packages"],
             "installed": installed,
-            "recommended": not installed and (key != "gpu" or gpu_available),
-            "available": key != "gpu" or gpu_available,
+            "recommended": not installed,
+            "available": True,
         })
     return out
 

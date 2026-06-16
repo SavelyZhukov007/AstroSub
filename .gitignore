@@ -23,3 +23,6 @@ android/
 *.egg-info/
 build/
 .build-meta/*
+packages/
+runtime/
+Submind.exe

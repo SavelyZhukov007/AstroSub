@@ -8,9 +8,12 @@ from pathlib import Path
 
 
 def app_root() -> Path:
-    """Корень ресурсов: работает и из исходников, и из onefile-сборки PyInstaller."""
+    """Корень ресурсов: рядом с exe в сборке, либо корень исходников."""
     if getattr(sys, "frozen", False):
-        return Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent))
+        exe_dir = Path(sys.executable).resolve().parent
+        if (exe_dir / "web").exists() or (exe_dir / "models").exists():
+            return exe_dir
+        return Path(getattr(sys, "_MEIPASS", exe_dir))
     return Path(__file__).resolve().parent.parent
 
 
@@ -42,32 +45,24 @@ def projects_dir() -> Path:
     return _sub("projects")
 
 
-def faceid_dir() -> Path:
-    return _sub("faceid")
-
-
 def cache_dir() -> Path:
     return _sub("cache")
 
 
 def packages_dir() -> Path:
-    return _sub("packages")
+    d = executable_dir() / "packages"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
 
 
 def runtime_dir() -> Path:
-    return _sub("runtime")
+    d = executable_dir() / "runtime"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
 
 
 def logs_dir() -> Path:
     return _sub("logs")
-
-
-def lan_dir() -> Path:
-    return _sub("lan")
-
-
-def uploads_dir() -> Path:
-    return _sub("uploads")
 
 
 def device_id_path() -> Path:
@@ -139,17 +134,10 @@ def bootstrap_runtime_packages() -> Path:
     if os.name == "nt":
         dll_dirs = [
             d,
-            d / "onnxruntime" / "capi",
-            d / "torch" / "lib",
-            d / "nvidia" / "cublas" / "bin",
-            d / "nvidia" / "cudnn" / "bin",
         ]
         for site in _runtime_site_packages():
             dll_dirs.extend([
-                site / "onnxruntime" / "capi",
-                site / "torch" / "lib",
-                site / "nvidia" / "cublas" / "bin",
-                site / "nvidia" / "cudnn" / "bin",
+                site / "openvino" / "libs",
             ])
         path_parts = []
         for p in dll_dirs:
@@ -177,10 +165,6 @@ def current_build_id() -> str:
 
 
 DEVICE_PATH = user_data_dir() / "device.json"
-FACEDB_PATH = user_data_dir() / "facedb.json"
-CHATS_PATH = user_data_dir() / "chats.json"
-DEVICES_PATH = lan_dir() / "devices.json"
-LAN_JOBS_PATH = lan_dir() / "jobs.json"
 
 
 DEFAULTS = {
@@ -188,19 +172,9 @@ DEFAULTS = {
     "whisper_device": "auto",          # auto|cpu|cuda
     "whisper_compute": "auto",         # auto|int8|float16|float32
     "language": "auto",
-    "ollama_host": "http://127.0.0.1:11434",
-    "ollama_model": "",                # пусто => автоопределение qwen
-    "default_model": "qwen2.5:7b-instruct",
-    "faces_enabled": True,
-    "face_sample_fps": 0.5,
-    "face_cluster_threshold": 0.55,
-    "face_match_threshold": 0.42,      # порог узнавания лица из галереи (косинус)
-    "remember_faces": True,            # запоминать спикеров между сессиями
     "gpu_policy": "auto",              # auto|gpu|cpu — тяжёлые задачи на GPU
     "max_cpu_workers": 0,              # 0 => авто (cpu_count-1)
     "theme": "studio-dark",
-    "translate_to": "",
-    "split_ratio": 0.56,               # доля ширины под видео-колонку
     "first_run_done": False,
 }
 
