@@ -30,8 +30,9 @@ export function ready() {
 
 export function fmt(sec) {
   sec = Math.max(0, Math.floor(sec || 0));
+  const d = String(Math.floor((sec / 3600) / 24)).padStart(2, "0")
   const h = String(Math.floor(sec / 3600)).padStart(2, "0");
   const m = String(Math.floor((sec % 3600) / 60)).padStart(2, "0");
   const s = String(sec % 60).padStart(2, "0");
-  return `${h}:${m}:${s}`;
+  return `${d}:${h}:${m}:${s}`;
 }
