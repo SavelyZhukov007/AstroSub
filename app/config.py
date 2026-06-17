@@ -6,6 +6,9 @@ import platform
 import sys
 from pathlib import Path
 
+_DLL_DIRECTORY_HANDLES = []
+_DLL_DIRECTORY_PATHS = set()
+
 
 def app_root() -> Path:
     """Корень ресурсов: рядом с exe в сборке, либо корень исходников."""
@@ -118,6 +121,21 @@ def _runtime_site_packages() -> list[Path]:
     return candidates
 
 
+def _add_windows_dll_dir(path: Path, path_parts: list[str]) -> None:
+    if not path.exists():
+        return
+    value = str(path)
+    if value not in path_parts:
+        path_parts.append(value)
+    if not hasattr(os, "add_dll_directory") or value in _DLL_DIRECTORY_PATHS:
+        return
+    try:
+        _DLL_DIRECTORY_HANDLES.append(os.add_dll_directory(value))
+        _DLL_DIRECTORY_PATHS.add(value)
+    except OSError:
+        pass
+
+
 def bootstrap_runtime_packages() -> Path:
     """Подключает пакеты, скачанные мастером первого запуска."""
     d = packages_dir()
@@ -132,22 +150,23 @@ def bootstrap_runtime_packages() -> Path:
                 sys.path.insert(0, s)
 
     if os.name == "nt":
-        dll_dirs = [
-            d,
-        ]
-        for site in _runtime_site_packages():
-            dll_dirs.extend([
-                site / "openvino" / "libs",
-            ])
+        sites = _runtime_site_packages() + [d, d / "Lib" / "site-packages"]
         path_parts = []
-        for p in dll_dirs:
-            if p.exists():
-                path_parts.append(str(p))
-                if hasattr(os, "add_dll_directory"):
-                    try:
-                        os.add_dll_directory(str(p))
-                    except OSError:
-                        pass
+        frozen_root = getattr(sys, "_MEIPASS", "")
+        if frozen_root:
+            _add_windows_dll_dir(Path(frozen_root), path_parts)
+        _add_windows_dll_dir(executable_dir(), path_parts)
+        _add_windows_dll_dir(runtime_python().parent, path_parts)
+        for site in sites:
+            _add_windows_dll_dir(site, path_parts)
+            _add_windows_dll_dir(site / "tokenizers", path_parts)
+            _add_windows_dll_dir(site / "ctranslate2", path_parts)
+            _add_windows_dll_dir(site / "cv2", path_parts)
+            _add_windows_dll_dir(site / "onnxruntime" / "capi", path_parts)
+            _add_windows_dll_dir(site / "openvino" / "libs", path_parts)
+            if site.exists():
+                for libs in site.glob("*.libs"):
+                    _add_windows_dll_dir(libs, path_parts)
         if path_parts:
             os.environ["PATH"] = os.pathsep.join(path_parts + [os.environ.get("PATH", "")])
     return d

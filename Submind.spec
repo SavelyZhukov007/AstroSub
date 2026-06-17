@@ -1,8 +1,8 @@
 # -*- mode: python ; coding: utf-8 -*-
 from PyInstaller.utils.hooks import collect_all
 
-datas = [('C:\\Project\\SubMind\\web', 'web'), ('C:\\Project\\SubMind\\.build-meta\\build-info.json', '.'), ('C:\\Project\\SubMind\\models', 'models')]
-binaries = []
+datas = [('C:\\Projects\\sub\\AstroSub\\web', 'web'), ('C:\\Projects\\sub\\AstroSub\\.build-meta\\build-info.json', '.'), ('C:\\Projects\\sub\\AstroSub\\models', 'models')]
+binaries = [('C:\\Users\\savel\\AppData\\Local\\Programs\\Python\\Python310\\python3.dll', '.'), ('C:\\Users\\savel\\AppData\\Local\\Programs\\Python\\Python310\\vcruntime140.dll', '.'), ('C:\\Users\\savel\\AppData\\Local\\Programs\\Python\\Python310\\vcruntime140_1.dll', '.')]
 hiddenimports = ['pip._internal.cli.main', 'fileinput']
 tmp_ret = collect_all('webview')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
@@ -11,7 +11,7 @@ datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 
 
 a = Analysis(
-    ['C:\\Project\\SubMind\\app\\main.py'],
+    ['C:\\Projects\\sub\\AstroSub\\app\\main.py'],
     pathex=[],
     binaries=binaries,
     datas=datas,
@@ -44,5 +44,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=['C:\\Project\\SubMind\\web\\assets\\icon.ico'],
+    icon=['C:\\Projects\\sub\\AstroSub\\web\\assets\\icon.ico'],
 )

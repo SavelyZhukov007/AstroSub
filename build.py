@@ -98,6 +98,14 @@ def which(name):
     return shutil.which(name)
 
 
+def python_runtime_dlls():
+    if os.name != "nt":
+        return []
+    root = Path(sys.executable).resolve().parent
+    names = ("python3.dll", "vcruntime140.dll", "vcruntime140_1.dll")
+    return [root / name for name in names if (root / name).exists()]
+
+
 # --------------------------------------------------------------------------- #
 #  install
 # --------------------------------------------------------------------------- #
@@ -229,6 +237,8 @@ def cmd_build(args):
     ]
     if MODELS_DIR.exists():
         cmd += ["--add-data", f"{MODELS_DIR}{sep}models"]
+    for dll in python_runtime_dlls():
+        cmd += ["--add-binary", f"{dll}{sep}."]
     if not args.onedir:
         cmd.append("--onefile")
     if icon.exists():
